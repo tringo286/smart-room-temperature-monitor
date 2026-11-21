@@ -1,0 +1,62 @@
+# Data pipeline: NodeMCU --MQTT--> Mosquitto --> Telegraf --> InfluxDB --> Grafana
+#
+# The usernames, passwords, and token below are for a local class demo only.
+# Change them before exposing this stack outside your own network.
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2.0.20
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+
+  influxdb:
+    image: influxdb:2.7.11
+    restart: unless-stopped
+    ports:
+      - "8086:8086"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: smartroom-admin
+      DOCKER_INFLUXDB_INIT_ORG: smartroom
+      DOCKER_INFLUXDB_INIT_BUCKET: smartroom
+      DOCKER_INFLUXDB_INIT_RETENTION: 30d
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: smartroom-dev-token
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+
+  telegraf:
+    image: telegraf:1.33.1
+    restart: unless-stopped
+    depends_on:
+      - mosquitto
+      - influxdb
+    environment:
+      INFLUX_TOKEN: smartroom-dev-token
+    volumes:
+      - ./telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    restart: unless-stopped
+    depends_on:
+      - influxdb
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/smart-room.json
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+
+volumes:
+  influxdb-data:
+  grafana-data:
