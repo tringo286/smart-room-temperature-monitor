@@ -1,9 +1,11 @@
 {
   "uid": "smart-room",
   "title": "Smart Room Monitor",
+  "description": "CMPE 286 IoT project: NodeMCU ESP8266 + DHT11 → MQTT → Telegraf → InfluxDB → Grafana",
   "tags": [
     "iot",
-    "cmpe286"
+    "cmpe286",
+    "mqtt"
   ],
   "timezone": "browser",
   "refresh": "5s",
@@ -11,9 +13,21 @@
     "from": "now-30m",
     "to": "now"
   },
+  "timepicker": {
+    "refresh_intervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m"
+    ]
+  },
+  "graphTooltip": 1,
+  "liveNow": false,
   "schemaVersion": 39,
   "version": 1,
   "editable": true,
+  "links": [],
   "templating": {
     "list": [
       {
@@ -38,7 +52,20 @@
   "panels": [
     {
       "id": 1,
-      "type": "stat",
+      "type": "row",
+      "title": "Now",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "gauge",
       "title": "Temperature",
       "datasource": {
         "type": "influxdb",
@@ -46,9 +73,9 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 0,
-        "w": 4,
-        "h": 4
+        "y": 1,
+        "w": 5,
+        "h": 7
       },
       "targets": [
         {
@@ -64,6 +91,8 @@
         "defaults": {
           "unit": "celsius",
           "decimals": 1,
+          "min": 10,
+          "max": 40,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -99,26 +128,27 @@
           "fields": "",
           "values": false
         },
-        "colorMode": "value",
-        "graphMode": "none",
-        "textMode": "value",
-        "justifyMode": "center",
-        "orientation": "auto"
-      }
+        "showThresholdMarkers": true,
+        "showThresholdLabels": false,
+        "minVizHeight": 75,
+        "minVizWidth": 75,
+        "sizing": "auto"
+      },
+      "description": "Latest DHT11 reading. Colour bands: blue < 18 °C, green 18–27 °C, orange 27–30 °C, red ≥ 30 °C."
     },
     {
-      "id": 2,
-      "type": "stat",
+      "id": 3,
+      "type": "gauge",
       "title": "Humidity",
       "datasource": {
         "type": "influxdb",
         "uid": "influxdb"
       },
       "gridPos": {
-        "x": 4,
-        "y": 0,
-        "w": 4,
-        "h": 4
+        "x": 5,
+        "y": 1,
+        "w": 5,
+        "h": 7
       },
       "targets": [
         {
@@ -133,7 +163,9 @@
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
-          "decimals": 1,
+          "decimals": 0,
+          "min": 0,
+          "max": 100,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -146,7 +178,7 @@
                 "value": 30
               },
               {
-                "color": "orange",
+                "color": "blue",
                 "value": 60
               }
             ]
@@ -165,26 +197,27 @@
           "fields": "",
           "values": false
         },
-        "colorMode": "value",
-        "graphMode": "none",
-        "textMode": "value",
-        "justifyMode": "center",
-        "orientation": "auto"
-      }
+        "showThresholdMarkers": true,
+        "showThresholdLabels": false,
+        "minVizHeight": 75,
+        "minVizWidth": 75,
+        "sizing": "auto"
+      },
+      "description": "Relative humidity. 30–60 % is the usual indoor comfort range."
     },
     {
-      "id": 3,
+      "id": 4,
       "type": "stat",
-      "title": "Feels like (heat index)",
+      "title": "Feels like",
       "datasource": {
         "type": "influxdb",
         "uid": "influxdb"
       },
       "gridPos": {
-        "x": 8,
-        "y": 0,
+        "x": 10,
+        "y": 1,
         "w": 4,
-        "h": 4
+        "h": 7
       },
       "targets": [
         {
@@ -193,7 +226,7 @@
             "type": "influxdb",
             "uid": "influxdb"
           },
-          "query": "from(bucket: \"smartroom\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"room_climate\" and r.device == \"${device}\")\n  |> filter(fn: (r) => r._field == \"heat_index\")\n  |> last()\n  |> keep(columns: [\"_time\", \"_value\"])"
+          "query": "from(bucket: \"smartroom\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"room_climate\" and r.device == \"${device}\")\n  |> filter(fn: (r) => r._field == \"heat_index\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: true)\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> drop(columns: [\"_start\", \"_stop\", \"_measurement\", \"device\"])"
         }
       ],
       "fieldConfig": {
@@ -223,7 +256,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "displayName": "Heat index"
         },
         "overrides": []
       },
@@ -236,14 +270,18 @@
           "values": false
         },
         "colorMode": "value",
-        "graphMode": "none",
+        "graphMode": "area",
         "textMode": "value",
         "justifyMode": "center",
-        "orientation": "auto"
-      }
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "description": "Heat index computed on the NodeMCU from temperature and humidity (NOAA formula).",
+      "interval": "10s"
     },
     {
-      "id": 4,
+      "id": 5,
       "type": "stat",
       "title": "Alert",
       "datasource": {
@@ -251,9 +289,9 @@
         "uid": "influxdb"
       },
       "gridPos": {
-        "x": 12,
-        "y": 0,
-        "w": 4,
+        "x": 14,
+        "y": 1,
+        "w": 5,
         "h": 4
       },
       "targets": [
@@ -316,11 +354,17 @@
         "graphMode": "none",
         "textMode": "value",
         "justifyMode": "center",
-        "orientation": "auto"
-      }
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {
+          "valueSize": 34
+        }
+      },
+      "description": "HIGH TEMP while the temperature is at or above the alert threshold."
     },
     {
-      "id": 5,
+      "id": 6,
       "type": "stat",
       "title": "Device",
       "datasource": {
@@ -328,9 +372,9 @@
         "uid": "influxdb"
       },
       "gridPos": {
-        "x": 16,
-        "y": 0,
-        "w": 4,
+        "x": 19,
+        "y": 1,
+        "w": 5,
         "h": 4
       },
       "targets": [
@@ -381,22 +425,28 @@
         "graphMode": "none",
         "textMode": "value",
         "justifyMode": "center",
-        "orientation": "auto"
-      }
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {
+          "valueSize": 34
+        }
+      },
+      "description": "From the MQTT Last Will: the broker marks the device offline when it disconnects."
     },
     {
-      "id": 6,
+      "id": 7,
       "type": "stat",
-      "title": "Wi-Fi signal",
+      "title": "Alert threshold",
       "datasource": {
         "type": "influxdb",
         "uid": "influxdb"
       },
       "gridPos": {
-        "x": 20,
-        "y": 0,
-        "w": 4,
-        "h": 4
+        "x": 14,
+        "y": 5,
+        "w": 5,
+        "h": 3
       },
       "targets": [
         {
@@ -405,31 +455,16 @@
             "type": "influxdb",
             "uid": "influxdb"
           },
-          "query": "from(bucket: \"smartroom\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"room_climate\" and r.device == \"${device}\")\n  |> filter(fn: (r) => r._field == \"rssi\")\n  |> last()\n  |> keep(columns: [\"_time\", \"_value\"])"
+          "query": "from(bucket: \"smartroom\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"room_climate\" and r.device == \"${device}\")\n  |> filter(fn: (r) => r._field == \"threshold\")\n  |> last()\n  |> keep(columns: [\"_time\", \"_value\"])"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "dBm",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": -80
-              },
-              {
-                "color": "green",
-                "value": -67
-              }
-            ]
-          },
+          "unit": "celsius",
+          "decimals": 1,
           "color": {
-            "mode": "thresholds"
+            "mode": "fixed",
+            "fixedColor": "red"
           }
         },
         "overrides": []
@@ -446,11 +481,95 @@
         "graphMode": "none",
         "textMode": "value",
         "justifyMode": "center",
-        "orientation": "auto"
-      }
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "description": "Change it from the NodeMCU web page or with MQTT: smartroom/<device>/cmd/threshold"
     },
     {
-      "id": 7,
+      "id": 8,
+      "type": "stat",
+      "title": "Buzzer",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "x": 19,
+        "y": 5,
+        "w": 5,
+        "h": 3
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "from(bucket: \"smartroom\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"room_climate\" and r.device == \"${device}\")\n  |> filter(fn: (r) => r._field == \"buzzer_muted\")\n  |> last()\n  |> keep(columns: [\"_time\", \"_value\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Active",
+                  "color": "green",
+                  "index": 0
+                },
+                "1": {
+                  "text": "Muted",
+                  "color": "orange",
+                  "index": 1
+                }
+              }
+            }
+          ],
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "description": "Mute from the NodeMCU web page or with MQTT: smartroom/<device>/cmd/mute"
+    },
+    {
+      "id": 9,
+      "type": "row",
+      "title": "History",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 10,
       "type": "timeseries",
       "title": "Temperature",
       "datasource": {
@@ -459,7 +578,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 4,
+        "y": 9,
         "w": 24,
         "h": 10
       },
@@ -475,13 +594,39 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "celsius",
-          "decimals": 1,
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "lineWidth": 2,
-            "fillOpacity": 10,
+            "fillOpacity": 18,
+            "gradientMode": "opacity",
             "showPoints": "never",
-            "spanNulls": false
+            "spanNulls": false,
+            "lineInterpolation": "smooth",
+            "axisSoftMin": null,
+            "thresholdsStyle": {
+              "mode": "area"
+            }
+          },
+          "unit": "celsius",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "rgba(115, 191, 105, 0.12)",
+                "value": 20
+              },
+              {
+                "color": "transparent",
+                "value": 26
+              }
+            ]
           }
         },
         "overrides": [
@@ -501,6 +646,10 @@
                   "mode": "fixed",
                   "fixedColor": "orange"
                 }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 3
               }
             ]
           },
@@ -524,6 +673,10 @@
               {
                 "id": "custom.fillOpacity",
                 "value": 0
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
               }
             ]
           },
@@ -549,6 +702,14 @@
                 "value": 0
               },
               {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "custom.lineInterpolation",
+                "value": "stepAfter"
+              },
+              {
                 "id": "custom.lineStyle",
                 "value": {
                   "fill": "dash",
@@ -557,10 +718,6 @@
                     10
                   ]
                 }
-              },
-              {
-                "id": "custom.lineInterpolation",
-                "value": "stepAfter"
               }
             ]
           }
@@ -577,13 +734,15 @@
           ]
         },
         "tooltip": {
-          "mode": "multi"
+          "mode": "multi",
+          "sort": "none"
         }
       },
+      "description": "Green band: comfort range 20–26 °C. Gaps mean the device was offline.",
       "interval": "10s"
     },
     {
-      "id": 8,
+      "id": 11,
       "type": "timeseries",
       "title": "Humidity",
       "datasource": {
@@ -592,7 +751,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 14,
+        "y": 19,
         "w": 12,
         "h": 8
       },
@@ -608,15 +767,41 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "percent",
-          "decimals": 1,
-          "min": 0,
-          "max": 100,
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "lineWidth": 2,
-            "fillOpacity": 15,
+            "fillOpacity": 18,
+            "gradientMode": "opacity",
             "showPoints": "never",
-            "spanNulls": false
+            "spanNulls": false,
+            "lineInterpolation": "smooth",
+            "axisSoftMin": null,
+            "thresholdsStyle": {
+              "mode": "area"
+            }
+          },
+          "unit": "percent",
+          "decimals": 0,
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "rgba(115, 191, 105, 0.12)",
+                "value": 30
+              },
+              {
+                "color": "transparent",
+                "value": 60
+              }
+            ]
           }
         },
         "overrides": [
@@ -652,13 +837,15 @@
           ]
         },
         "tooltip": {
-          "mode": "single"
+          "mode": "multi",
+          "sort": "none"
         }
       },
+      "description": "Green band: comfort range 30–60 %.",
       "interval": "10s"
     },
     {
-      "id": 9,
+      "id": 12,
       "type": "state-timeline",
       "title": "Alert history",
       "datasource": {
@@ -667,7 +854,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 14,
+        "y": 19,
         "w": 12,
         "h": 8
       },
@@ -678,30 +865,13 @@
             "type": "influxdb",
             "uid": "influxdb"
           },
-          "query": "from(bucket: \"smartroom\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"room_climate\" and r.device == \"${device}\")\n  |> filter(fn: (r) => r._field == \"alert\")\n  |> aggregateWindow(every: v.windowPeriod, fn: max, createEmpty: true)\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> drop(columns: [\"_start\", \"_stop\", \"_measurement\", \"device\"])"
+          "query": "from(bucket: \"smartroom\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"room_climate\" and r.device == \"${device}\")\n  |> filter(fn: (r) => r._field == \"alert\" or r._field == \"buzzer_muted\")\n  |> aggregateWindow(every: v.windowPeriod, fn: max, createEmpty: true)\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> drop(columns: [\"_start\", \"_stop\", \"_measurement\", \"device\"])"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "mappings": [
-            {
-              "type": "value",
-              "options": {
-                "0": {
-                  "text": "Normal",
-                  "color": "green",
-                  "index": 0
-                },
-                "1": {
-                  "text": "HIGH TEMP",
-                  "color": "red",
-                  "index": 1
-                }
-              }
-            }
-          ],
           "custom": {
-            "fillOpacity": 80,
+            "fillOpacity": 85,
             "lineWidth": 0
           }
         },
@@ -715,21 +885,477 @@
               {
                 "id": "displayName",
                 "value": "Alert"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "0": {
+                        "text": "Normal",
+                        "color": "green",
+                        "index": 0
+                      },
+                      "1": {
+                        "text": "HIGH TEMP",
+                        "color": "red",
+                        "index": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "buzzer_muted"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Buzzer"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "0": {
+                        "text": "Active",
+                        "color": "green",
+                        "index": 0
+                      },
+                      "1": {
+                        "text": "Muted",
+                        "color": "orange",
+                        "index": 1
+                      }
+                    }
+                  }
+                ]
               }
             ]
           }
         ]
       },
       "options": {
-        "showValue": "never",
+        "showValue": "auto",
         "mergeValues": true,
-        "rowHeight": 0.8,
+        "rowHeight": 0.75,
+        "alignValue": "center",
         "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
+          "showLegend": false
         }
       },
+      "description": "When the room was too hot, and whether the buzzer was muted at the time.",
       "interval": "10s"
+    },
+    {
+      "id": 13,
+      "type": "row",
+      "title": "Summary for the selected time range",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 27,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "Lowest",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "from(bucket: \"smartroom\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"room_climate\" and r.device == \"${device}\")\n  |> filter(fn: (r) => r._field == \"temperature\")\n  |> min()\n  |> keep(columns: [\"_value\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 18
+              },
+              {
+                "color": "orange",
+                "value": 27
+              },
+              {
+                "color": "red",
+                "value": 30
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "Highest",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 28,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "from(bucket: \"smartroom\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"room_climate\" and r.device == \"${device}\")\n  |> filter(fn: (r) => r._field == \"temperature\")\n  |> max()\n  |> keep(columns: [\"_value\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 18
+              },
+              {
+                "color": "orange",
+                "value": 27
+              },
+              {
+                "color": "red",
+                "value": 30
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 16,
+      "type": "stat",
+      "title": "Average temperature",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 28,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "from(bucket: \"smartroom\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"room_climate\" and r.device == \"${device}\")\n  |> filter(fn: (r) => r._field == \"temperature\")\n  |> mean()\n  |> keep(columns: [\"_value\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 18
+              },
+              {
+                "color": "orange",
+                "value": 27
+              },
+              {
+                "color": "red",
+                "value": 30
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 17,
+      "type": "stat",
+      "title": "Average humidity",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 28,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "from(bucket: \"smartroom\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"room_climate\" and r.device == \"${device}\")\n  |> filter(fn: (r) => r._field == \"humidity\")\n  |> mean()\n  |> keep(columns: [\"_value\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 18,
+      "type": "stat",
+      "title": "Time in alert",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 28,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "from(bucket: \"smartroom\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"room_climate\" and r.device == \"${device}\")\n  |> filter(fn: (r) => r._field == \"alert\")\n  |> mean()\n  |> map(fn: (r) => ({r with _value: float(v: r._value) * 100.0}))\n  |> keep(columns: [\"_value\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "description": "Share of readings at or above the alert threshold."
+    },
+    {
+      "id": 19,
+      "type": "stat",
+      "title": "Readings stored",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 28,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "from(bucket: \"smartroom\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"room_climate\" and r.device == \"${device}\")\n  |> filter(fn: (r) => r._field == \"temperature\")\n  |> count()\n  |> keep(columns: [\"_value\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "description": "Number of MQTT telemetry messages saved in InfluxDB for this device."
     }
   ]
 }
