@@ -1,8 +1,8 @@
 % Smart Room Temperature Monitor -- CMPE 286 project report (IEEE conference format)
 %
 % Build:  cd docs/report && latexmk -pdf report.tex
-% (or upload this folder plus ../data-flow.png, ../web-dashboard.png and
-%  ../grafana-dashboard-simulated.png to Overleaf).
+% (or upload this folder plus ../data-flow.png, ../web-dashboard.png,
+%  ../grafana-dashboard-simulated.png and ../grafana-forecast.png to Overleaf).
 %
 % Text in red (\fillin{...}) must be completed by the team before submission:
 % names, hardware measurements that need the physical board, and the AI-use
@@ -60,18 +60,26 @@ protecting the room even without a network. Readings are published over MQTT to 
 containerized pipeline (Mosquitto, Telegraf, InfluxDB) and visualized in Grafana,
 while the board also serves its own self-contained web dashboard with a 20-minute
 history and remote controls. Online/offline state is reported with retained messages
-and the MQTT Last Will. Because hardware was not always available, the firmware was
-compiled and tested on a laptop against fake hardware libraries; 19 automated tests
+and the MQTT Last Will. A forecasting service fits a weighted trend to the last
+15 minutes of readings, predicts the temperature 10 minutes ahead with a 95\,\%
+interval, and sends the expected time to the alert back to the device, which shows a
+countdown on its LCD; the service scores its own predictions against later readings. Because hardware was not always available, the firmware was
+compiled and tested on a laptop against fake hardware libraries; 26 automated tests
 and JSON contract checks found two real defects, including one that left the board
 unresponsive 99\,\% of the time while the broker was unreachable (reduced to 11\,\%).
-On the server side we measured a median MQTT broker hop of 1.7\,ms, a median
+The firmware also builds for the ESP8266 using 39\,\% of its RAM, and an end-to-end test of
+the running stack, covering commands, a broker restart, the forecast, every dashboard query,
+and the Last Will, found a third defect: the forecaster mixed old readings into a restarted
+device's forecast. All 51 of its checks now pass. On the server side we measured a median MQTT broker hop of 1.7\,ms, a median
 publish-to-storage latency of 4.6\,s, and offline detection within 0.01\,s after a
-reset and 24\,s after a silent power loss.
+reset and 24\,s after a silent power loss. In a simulated heat event the forecast
+announced the alert 16--18 minutes in advance with a mean absolute error of
+0.9--1.1\,\textdegree C, compared with 1.6--2.7\,\textdegree C for a naive persistence forecast.
 \end{abstract}
 
 \begin{IEEEkeywords}
 Internet of Things, MQTT, ESP8266, environmental monitoring, InfluxDB, Grafana,
-edge computing, embedded software testing
+edge computing, time-series forecasting, embedded software testing
 \end{IEEEkeywords}
 
 % ---------------------------------------------------------------------------
@@ -99,6 +107,9 @@ The main contributions of this project are:
         the ESP8266 itself, and a Grafana dashboard backed by a time-series database.
   \item An MQTT topic design with retained status, Last Will, and bidirectional
         command topics, connected to InfluxDB through Telegraf without custom server code.
+  \item A short-term forecasting service that predicts the temperature 10 minutes
+        ahead, warns before the threshold is reached, and continuously measures its own
+        accuracy against a baseline.
   \item A host-based test harness that runs the unmodified firmware on a laptop against
         fake hardware, which found two defects before the hardware was available.
   \item Measurements of the latency and failure-detection behavior of the pipeline.
@@ -123,7 +134,10 @@ and support windowed aggregation, which makes them a common choice for sensor
 data~\cite{influxdb}. Telegraf is an agent that can subscribe to MQTT topics and write
 the parsed messages into InfluxDB~\cite{telegraf}, and Grafana provides interactive
 dashboards on top of it~\cite{grafana}. Hobby projects with the ESP8266 and DHT11 often
-stop at an LCD or a single cloud service; our system combines local alerting, a local
+stop at an LCD or a single cloud service. For short-term forecasting of a slowly
+changing signal, simple trend models are a reasonable starting point, and any model
+should be compared with the naive (persistence) forecast that assumes no
+change~\cite{hyndman}. Our system combines local alerting, a local
 web interface, and a full storage and visualization pipeline, and adds automated
 testing of the firmware.
 
@@ -145,7 +159,9 @@ short history, and exposes data over HTTP and MQTT. The \emph{local Wi-Fi networ
 carries two kinds of traffic: HTTP requests from browsers to the device, and MQTT
 traffic between the device and the broker. The \emph{server}, a set of Docker
 containers on a laptop, receives MQTT messages in Mosquitto; Telegraf subscribes to the
-device topics and writes each message to InfluxDB, and Grafana queries InfluxDB.
+device topics and writes each message to InfluxDB, and Grafana queries InfluxDB. A
+forecaster service also subscribes to the telemetry and publishes a forecast for each
+device, which is both stored and delivered to the device.
 Commands flow the other way: any MQTT client (or the device's own web page) can change
 the threshold or mute the buzzer.
 
@@ -213,13 +229,14 @@ state and the broker announces an unexpected disconnect on the device's behalf.
     \code{status} & device $\rightarrow$ & \code{online}/\code{offline}, retained, Last Will \\
     \code{cmd/threshold} & $\rightarrow$ device & threshold in \textdegree C \\
     \code{cmd/mute} & $\rightarrow$ device & \code{1} or \code{0} \\
+    \code{forecast} & $\rightarrow$ device & JSON forecast, every 10\,s \\
     \bottomrule
   \end{tabular}
 \end{table}
 
 Telegraf parses the device identifier out of the topic and stores it as an InfluxDB
-tag, so telemetry lands in the measurement \code{room\_climate} and status in
-\code{device\_status}, both indexed by device. The bucket keeps 30 days of data.
+tag, so telemetry lands in the measurement \code{room\_climate}, status in
+\code{device\_status}, and forecasts in \code{room\_forecast}, all indexed by device. The bucket keeps 30 days of data.
 
 % ---------------------------------------------------------------------------
 \section{Implementation}
@@ -239,6 +256,11 @@ and the mute flag can be changed from the web page or over MQTT; both paths call
 same functions, which validate the value, update the LCD and buzzer immediately, and
 publish a fresh telemetry message so Grafana shows the change without waiting for the
 next reading.
+
+The device also subscribes to its forecast topic. When the forecast expects the
+threshold to be reached within an hour, the second LCD line alternates every 4\,s
+between the humidity and a countdown such as ``Alert in \textasciitilde 6 min''. Forecasts older than
+two minutes are ignored, so a stopped server cannot leave a stale warning on the display.
 
 When the broker cannot be reached, a TCP connection attempt can block for several
 seconds. Reconnection attempts are therefore spaced with an exponential back-off from
@@ -265,10 +287,10 @@ stops answering for more than 6\,s.
 The server is defined in a Docker Compose file with pinned versions of Mosquitto
 (2.0.20), InfluxDB (2.7.11), Telegraf (1.33.1), and Grafana (11.4.0), so the whole
 stack starts with one command on any laptop. The InfluxDB data source and the dashboard
-are provisioned automatically. The dashboard (Fig.~\ref{fig:grafana}) has three rows:
-current values and device state, history with shaded comfort bands and an alert
-timeline, and summary statistics for the selected time range, such as the share of time
-spent in alert. Windows without data are kept empty, so periods when the device was
+are provisioned automatically. The dashboard (Fig.~\ref{fig:grafana}) has four rows:
+current values and device state, the forecast (Section~\ref{sec:forecast}), history with
+shaded comfort bands and an alert timeline, and summary statistics for the selected time
+range, such as the share of time spent in alert. Windows without data are kept empty, so periods when the device was
 offline appear as gaps instead of misleading straight lines. The dashboard JSON is
 generated by a Python script, which keeps the Flux queries readable and under version
 control.
@@ -280,6 +302,36 @@ control.
   heat event that crosses the 30\,\textdegree C threshold.}
   \label{fig:grafana}
 \end{figure}
+
+\subsection{Short-Term Temperature Forecast}
+\label{sec:forecast}
+The forecaster is a small Python service in its own container. For each device it keeps
+the readings of the last 15 minutes and, every 10\,s, fits a straight line
+$T(x) = a + b\,x$ by weighted least squares, where $x$ is the age of a reading in minutes
+relative to the newest one. The weights $w_i = 2^{-\Delta t_i/\tau}$ halve every
+$\tau = 4$ minutes, so the trend follows recent changes while still averaging out sensor
+noise. The forecast for the horizon $h = 10$ minutes is
+\begin{equation}
+  \hat{T}_{h} = a + b\,h \pm 1.96\sqrt{s^2 + \sigma^2_{\mathrm{fit}}(h) + r^2/12},
+\end{equation}
+where $s^2$ is the weighted residual variance, $\sigma^2_{\mathrm{fit}}(h)$ is the variance of
+the fitted line at $h$ (using the effective number of readings
+$n_{\mathrm{eff}} = (\sum w_i)^2 / \sum w_i^2$), and $r^2/12$ is the rounding error of a sensor
+with resolution $r$ (1\,\textdegree C for the DHT11). If the temperature rises faster than
+0.02\,\textdegree C/min, the time to the threshold $\theta$ is estimated as $(\theta - a)/b$ and
+reported when it is under 60 minutes. A forecast is published only after five minutes of
+readings, and the history is reset after a gap of more than a minute or when the device's
+uptime goes back to zero (a restart).
+
+The service also scores itself. Each prediction is compared with the reading that
+arrives 10 minutes later, and the mean absolute error (MAE) over the last 50 predictions is
+published next to the MAE of the persistence forecast and the share of readings that fell
+inside the 95\,\% interval. Because a straight line cannot capture curved warm-ups, the
+interval is widened, once ten predictions have been scored, to at least
+$1.96 \times 1.2533 \times \mathrm{MAE}$, the half-width implied by the measured errors if they
+are normally distributed. Grafana plots the 10-minute-ahead forecast shifted forward in time, so
+it extends beyond ``now'' and can later be compared with what actually happened
+(Fig.~\ref{fig:forecast}).
 
 \subsection{Development Tools}
 A Python simulator publishes realistic telemetry (daily drift, noise, and an optional
@@ -300,14 +352,25 @@ simulated time, sensor values, Wi-Fi, and broker availability. Each test runs in
 separate process, so it starts from a freshly booted board, and the build uses
 AddressSanitizer and UndefinedBehaviorSanitizer.
 
-The 19 tests cover normal readings, alerts including the exact threshold, muting and
+The 26 tests cover normal readings, alerts including the exact threshold, muting and
 threshold changes over MQTT and HTTP, rejection of invalid input, sensor failure and
 recovery, wrap-around of the history buffer, the size of the largest possible telemetry
-message, broker outages and reconnection, and the absence of MQTT traffic without
-Wi-Fi. In addition, contract checks parse every JSON document the firmware produces
+message, broker outages and reconnection, the absence of MQTT traffic without Wi-Fi, and
+the forecast countdown, its expiry, and malformed forecast messages. The forecast model
+has 14 further unit tests. In addition, contract checks parse every JSON document the firmware produces
 and verify that each field read by the web page, queried by Grafana, or produced by
 the simulator and mock server exists with the expected type. All tests pass with no
 compiler warnings.
+
+\subsection{Target Build}
+The host tests cannot catch ESP8266-specific problems, so we also compiled the sketch for
+the NodeMCU with \code{arduino-cli} and ESP8266 Arduino core 3.1.2, with all warnings
+enabled. Global variables use 31.6\,KB of the 80\,KB of data RAM (39\,\%), mostly
+library and Wi-Fi buffers, and the code uses 312\,KB of the 1\,MB flash code area
+(29\,\%), including the 22\,KB web page, which is kept in flash rather than RAM. The build reported one
+warning in our code: the compiler could not prove that the LCD countdown always fits in 16
+characters. The value was already capped at 60 minutes; we made the cap explicit, and the
+remaining warnings come from the LCD and MQTT libraries.
 
 \subsection{Defects Found}
 \label{sec:bugs}
@@ -327,6 +390,53 @@ exponential back-off reduced the blocked time to 11\,\% over the same five minut
 failing re-published the last good reading as if it were new, which would have
 stored fabricated data points in InfluxDB. Telemetry is now suppressed while the sensor
 is in an error state.
+
+\subsection{End-to-End System Test}
+\label{sec:systest}
+A second script tests the running Docker stack as a whole, with the simulator acting as the
+device (same topics, payload, Last Will, and commands as the firmware) and a slow heat
+event that crosses the 30\,\textdegree C threshold after about ten minutes. It uses its own
+device identifier and deletes that device's data afterwards. The final 17-minute run passed
+all 51 checks; Table~\ref{tab:systest} summarizes them. After a restart of the broker,
+telemetry flowed again within 1.8\,s, and Telegraf and the forecaster reconnected on their
+own. Every one of the 23 Flux queries behind the 21 Grafana panels returned data for the test
+device, which confirms that the dashboard, the Telegraf configuration, and the message
+formats agree.
+
+\emph{Forecast from stale readings after a restart.} Running the test a second time, less
+than a minute after the first run's device had stopped, exposed a defect. The forecaster
+only reset a device's history after a gap of more than a minute, so it treated the new run as
+a continuation: it mixed the old 33\,\textdegree C readings with the new 24\,\textdegree C
+ones, reported ``alert now'' at once, then predicted a steep fall while the room was actually
+warming, and scored predictions made from the old run against the new readings. The same
+would happen whenever the board resets and reconnects within a minute. The forecaster now
+also starts over when the device's uptime goes back to zero, and drops the predictions it
+has not yet scored. Our first fix also reset on the device's \code{offline} status, but the
+next run showed that a broker restart then discarded five minutes of valid history, because
+the broker announces every client as offline; a short drop-out without a reboot happens in
+the same room, so only the uptime is used. Unit tests and a new step of the system test
+(restart the device right after a crash and check that no forecast is published from the
+old readings) cover the fix.
+
+\begin{table}[t]
+  \caption{End-to-End System Test (Docker Stack and Simulated Device)}
+  \label{tab:systest}
+  \centering
+  \begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.36\columnwidth}>{\raggedright\arraybackslash}p{0.56\columnwidth}@{}}
+    \toprule
+    Area & Result \\
+    \midrule
+    Stack & 5 containers running; InfluxDB and Grafana healthy \\
+    Telemetry & every 2.00--2.01\,s, all 9 fields, stored in InfluxDB \\
+    Commands & threshold and mute applied; non-numeric and out-of-range thresholds ignored \\
+    Broker restart & telemetry back after 1.8\,s; Telegraf and forecaster reconnect \\
+    Forecast & first after 301\,s; predicted the alert in 4.7\,min; it came 0.6\,min later \\
+    Grafana & 23 of 23 panel queries return data \\
+    Device crash & Last Will \code{offline} after 0.01\,s \\
+    Device restart & forecaster starts over; no forecast from old readings \\
+    \bottomrule
+  \end{tabular}
+\end{table}
 
 \subsection{Pipeline Performance}
 We measured the server side with a script that uses its own test device identifiers
@@ -362,6 +472,69 @@ If the device simply goes silent (power or Wi-Fi loss), the broker waits for the
 keep-alive timeout, which MQTT sets at 1.5 times the keep-alive interval~\cite{mqtt311};
 with PubSubClient's default of 15\,s we measured 24\,s.
 
+\subsection{Forecast Accuracy}
+We evaluated the forecaster in two ways, both with simulated data. Offline, the unit tests
+replay synthetic warm-ups; Table~\ref{tab:forecast} reports the 10-minute-ahead results.
+On a straight warm-up the forecast error is about a quarter of the persistence error, and
+modeling the DHT11's whole-degree rounding brings the interval coverage from 87\,\% to the
+nominal 95\,\%. On a curved warm-up, however, the noise-only interval contained the true
+value only 8\,\% of the time; widening it from the measured MAE restored coverage at the
+cost of a wider ($\pm$2.1\,\textdegree C) interval.
+
+\begin{table}[t]
+  \caption{Forecast Accuracy, 10 Minutes Ahead (Simulated Data)}
+  \label{tab:forecast}
+  \centering
+  \begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.42\columnwidth}rrr@{}}
+    \toprule
+    Scenario & MAE & Persist. & 95\,\% cov. \\
+    \midrule
+    Linear warm-up, 0.1\,\textdegree C resolution & 0.17 & 0.68 & 93\,\% \\
+    Linear warm-up, 1\,\textdegree C resolution, no rounding term & 0.32 & 0.69 & 87\,\% \\
+    Same, with rounding term & -- & -- & 95\,\% \\
+    Curved warm-up, noise-only interval & -- & -- & 8\,\% \\
+    Curved warm-up, widened interval & -- & -- & 100\,\% \\
+    Live run, first scoring & 0.99 & 1.68 & -- \\
+    Live run, during the alert & 0.90 & 2.69 & -- \\
+    \bottomrule
+  \end{tabular}
+  \\[2pt]
+  \footnotesize MAE and persistence (Persist.) errors in \textdegree C.
+\end{table}
+
+For a live test we ran the full stack with the simulator producing a slow 40-minute
+heat event. The first forecast appeared five minutes after the start, the countdown first
+showed 16--18 minutes, and the alert fired about 27 minutes after the start, so the
+warning came well before the threshold was crossed. During the run the forecast MAE
+stayed between 0.9 and 1.1\,\textdegree C while the persistence MAE grew to 2.7\,\textdegree C
+(Fig.~\ref{fig:forecast}). The live interval coverage was still converging when we stopped
+(46\,\%), because the rolling window still contained predictions made before the
+interval was widened.
+
+The system test (Section~\ref{sec:systest}) repeated this with a faster, 15-minute heat
+event. Its first forecast predicted the alert in 4.7 minutes, the countdown fell by about one
+minute per minute (4.7, 3.9, 3.0, 1.9, 0.9), and the alert fired 5.3 minutes after that first
+forecast, 36\,s later than predicted. On this steep ramp the persistence forecast was
+off by 5.6\,\textdegree C on average, against 0.5\,\textdegree C for the trend (first six
+scored predictions).
+
+The forecast does not always help. One simulated room was kept steady near 33\,\textdegree C
+with the simulator's default $\pm$1.5\,\textdegree C wave, which repeats every five minutes.
+Because the 10-minute horizon is exactly two periods, the persistence forecast was almost
+perfect (0.17\,\textdegree C over 50 predictions), while the trend extrapolated each swing
+and erred by 1.17\,\textdegree C. Its widened interval still contained every reading, so the
+published range stayed honest, but the point forecast was worse than doing nothing.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{grafana-forecast.png}
+  \caption{Forecast panels during a simulated heat event: the dashed line and band show
+  the 10-minute-ahead forecast and its 95\,\% interval, drawn ahead of the measured
+  temperature; the forecast MAE (0.90\,\textdegree C) is compared with the persistence baseline
+  (2.69\,\textdegree C).}
+  \label{fig:forecast}
+\end{figure}
+
 \subsection{Hardware Validation}
 \fillin{To be completed by the team after testing on the assembled board. Suggested measurements:
 (1) DHT11 reading compared with a reference thermometer and hygrometer at room temperature,
@@ -387,7 +560,11 @@ monitoring but not for precise measurement; a DHT22 or SHT31 would be a drop-in
 improvement. For the class demonstration the broker allows anonymous connections and the
 web dashboard has no authentication, so anyone on the same network could change the
 settings; a deployment should enable MQTT user accounts and TLS. The threshold and mute
-setting are kept in RAM and reset after a reboot. Finally, the server-side measurements
+setting are kept in RAM and reset after a reboot. The linear forecast cannot follow
+temperature swings with a period close to its 10-minute horizon: with a fast simulated
+oscillation it tracked the swing and reported no alert while the room was heating, and in a
+steady oscillating room it was less accurate than persistence. All forecast results so far
+come from simulated data. Finally, the server-side measurements
 exclude the wireless link, which adds its own latency and loss.
 
 % ---------------------------------------------------------------------------
@@ -400,10 +577,14 @@ remote control. Running the alarm logic at the edge keeps the room protected whe
 network fails, and the retained status with Last Will makes device failures visible.
 Testing the firmware on a laptop against fake hardware proved worthwhile: it found
 a defect that would have frozen the board during the demonstration whenever the server
-was unreachable.
+was unreachable. The forecasting service turns the system from reactive to proactive: in
+simulation it warned about an upcoming alert more than a quarter of an hour in advance,
+and it reports its own accuracy so its warnings can be trusted or questioned.
 
-Future work includes short-term temperature forecasting to warn before the threshold is
-reached, push notifications through Grafana alerting, a relay-controlled fan with
+Future work includes validating the forecast on real rooms and comparing it with
+seasonal or learned models; because the service already measures both its own error and the
+persistence error, it could also fall back to persistence whenever that has been more
+accurate. Further items are push notifications through Grafana alerting, a relay-controlled fan with
 hysteresis to close the control loop, storing settings in flash, buffering readings while
 the broker is unreachable, and securing MQTT with authentication and TLS.
 
@@ -440,6 +621,9 @@ with code and with drafting this report; all content was reviewed and edited by 
   \url{https://grafana.com/docs/grafana/latest/}
 \bibitem{esp8266} Espressif Systems, ``ESP8266EX datasheet.'' [Online]. Available:
   \url{https://www.espressif.com/en/support/documents/technical-documents}
+\bibitem{hyndman} R. J. Hyndman and G. Athanasopoulos, \textit{Forecasting: Principles
+  and Practice}, 3rd ed. Melbourne, Australia: OTexts, 2021. [Online]. Available:
+  \url{https://otexts.com/fpp3/}
 \bibitem{dht11} Aosong Electronics, ``DHT11 digital temperature and humidity sensor,''
   datasheet. \fillin{Add the URL of the datasheet you used.}
 \end{thebibliography}

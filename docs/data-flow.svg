@@ -40,7 +40,7 @@
   <text class="bt" x="105" y="94">DHT11</text>
   <text class="bs" x="105" y="117">temp + humidity</text>
 
-  <rect class="box" x="30" y="185" width="320" height="235" rx="6"/>
+  <rect class="box" x="30" y="185" width="320" height="261" rx="6"/>
   <text class="bt" x="190" y="214">Firmware loop (C++)</text>
   <text class="li" x="48" y="246">• Read sensor every 2 s</text>
   <text class="li" x="48" y="272">• Drop failed reads (sensor error)</text>
@@ -49,6 +49,7 @@
   <text class="li" x="48" y="350">• 20-min history (120 × 10 s)</text>
   <text class="li" x="48" y="376">• Web server + MQTT client</text>
   <text class="li" x="48" y="402">• MQTT retry back-off 5–60 s</text>
+  <text class="li" x="48" y="428">• LCD countdown from forecast</text>
 
   <rect class="box" x="30" y="500" width="150" height="60" rx="6"/>
   <text class="bt" x="105" y="526">16×2 LCD</text>
@@ -59,10 +60,10 @@
 
   <line class="io" x1="105" y1="132" x2="105" y2="183" marker-end="url(#aGray)"/>
   <text class="lbl" x="114" y="163">GPIO D5</text>
-  <line class="io" x1="105" y1="420" x2="105" y2="498" marker-end="url(#aGray)"/>
-  <text class="lbl" x="114" y="464">I²C D1/D2</text>
-  <line class="io" x1="275" y1="420" x2="275" y2="498" marker-end="url(#aGray)"/>
-  <text class="lbl" x="284" y="464">GPIO D6</text>
+  <line class="io" x1="105" y1="446" x2="105" y2="498" marker-end="url(#aGray)"/>
+  <text class="lbl" x="114" y="478">I²C D1/D2</text>
+  <line class="io" x1="275" y1="446" x2="275" y2="498" marker-end="url(#aGray)"/>
+  <text class="lbl" x="284" y="478">GPIO D6</text>
 
   <!-- Legend -->
   <line class="data" x1="30" y1="598" x2="62" y2="598"/>
@@ -79,8 +80,8 @@
   <line class="data" x1="350" y1="232" x2="618" y2="232" marker-end="url(#aBlue)"/>
   <line class="cmd" x1="620" y1="298" x2="352" y2="298" marker-end="url(#aOrange)"/>
   <text class="lblb" x="396" y="322">MQTT subscribe</text>
-  <text class="lbl" x="396" y="342">cmd/threshold</text>
-  <text class="lbl" x="396" y="362">cmd/mute</text>
+  <text class="lbl" x="396" y="342">cmd/threshold, mute</text>
+  <text class="lbl" x="396" y="362">forecast</text>
 
   <!-- HTTP between board and browser -->
   <path class="data" d="M350,392 H558 V468" marker-start="url(#aBlue)" marker-end="url(#aBlue)"/>
@@ -93,10 +94,19 @@
   <text class="bs" x="485" y="541">threshold, mute</text>
 
   <!-- Server -->
-  <rect class="box" x="880" y="66" width="190" height="72" rx="6"/>
-  <text class="bt" x="975" y="95">MQTT client</text>
-  <text class="bs" x="975" y="118">remote commands</text>
-  <path class="cmd" d="M880,102 H715 V178" marker-end="url(#aOrange)"/>
+  <rect class="box" x="395" y="62" width="180" height="72" rx="6"/>
+  <text class="bt" x="485" y="91">MQTT client</text>
+  <text class="bs" x="485" y="114">remote commands</text>
+  <path class="cmd" d="M575,98 H690 V178" marker-end="url(#aOrange)"/>
+
+  <rect class="box" x="880" y="62" width="190" height="80" rx="6"/>
+  <text class="bt" x="975" y="91">Forecaster</text>
+  <text class="bs" x="975" y="114">trend fit, 10 min ahead</text>
+  <text class="bs" x="975" y="134">self-scoring (MAE)</text>
+  <path class="data" d="M750,180 V86 H878" marker-end="url(#aBlue)"/>
+  <text class="lbl" x="758" y="78">telemetry</text>
+  <path class="data" d="M880,124 H785 V178" marker-end="url(#aBlue)"/>
+  <text class="lbl" x="800" y="160">forecast</text>
 
   <rect class="box" x="620" y="180" width="190" height="140" rx="6"/>
   <text class="bt" x="715" y="225">Mosquitto</text>
