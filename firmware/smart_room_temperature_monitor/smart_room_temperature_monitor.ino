@@ -102,6 +102,7 @@ void updateDisplay() {
   } else if (alertExpectedSoon() && (millis() / LCD_ALTERNATE_MS) % 2 == 1) {
     char line[17];
     int minutes = (int)(forecastMinutes + 0.5);
+    if (minutes > 99) minutes = 99;  // alertExpectedSoon() caps it at 60; keeps the line 16 chars
     if (minutes < 1) {
       snprintf(line, sizeof(line), "%-16s", "Alert in <1 min");
     } else {

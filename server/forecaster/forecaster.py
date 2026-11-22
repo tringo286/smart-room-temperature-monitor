@@ -45,13 +45,15 @@ def main():
             data = json.loads(msg.payload)
             temperature = float(data["temperature"])
             threshold = float(data["threshold"])
+            uptime = data.get("uptime_s")
+            uptime = float(uptime) if uptime is not None else None
         except (ValueError, KeyError, TypeError):
             print(f"Ignored bad telemetry from {device}: {msg.payload[:80]!r}", flush=True)
             return
 
         now = time.time()
         f = devices.setdefault(device, Forecaster())
-        f.add(now, temperature, threshold)
+        f.add(now, temperature, threshold, uptime)
 
         if now - last_publish.get(device, 0) < PUBLISH_EVERY_S:
             return

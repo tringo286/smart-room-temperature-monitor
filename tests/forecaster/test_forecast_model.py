@@ -96,6 +96,37 @@ class ForecastModelTest(unittest.TestCase):
         self.assertEqual(len(f.samples), 1)
         self.assertIsNone(f.forecast())
 
+    def test_device_restart_resets_history(self):
+        # Device runs warm, restarts within a minute in a cooler room (uptime goes back to 0).
+        f = fm.Forecaster()
+        t = 0.0
+        for i in range(450):
+            f.add(t, 33.0, 30.0, uptime_s=600 + i * 2)
+            if i % 5 == 0:
+                f.forecast()
+            t += 2
+        self.assertTrue(f.pending)
+        f.add(t + 20, 24.0, 30.0, uptime_s=1)
+        self.assertEqual(len(f.samples), 1)
+        self.assertFalse(f.pending)  # predictions from the old run are not scored
+        self.assertIsNone(f.forecast())
+        # The new run then forecasts from its own readings only.
+        last = feed(f, [24.0] * 300, start=t + 22)
+        self.assertAlmostEqual(f.forecast()["temp_in_10m"], 24.0, places=2)
+        self.assertGreater(last - f.samples[0][0], fm.MIN_SPAN_S)
+
+    def test_short_dropout_without_restart_keeps_history(self):
+        # Wi-Fi or broker drop-out of 30 s: uptime keeps counting, so it is the same run.
+        f = fm.Forecaster()
+        t = 0.0
+        for i in range(300):
+            f.add(t, 24.0, 30.0, uptime_s=t)
+            t += 2
+        t += 30
+        f.add(t, 24.0, 30.0, uptime_s=t)
+        self.assertEqual(len(f.samples), 301)
+        self.assertIsNotNone(f.forecast())
+
     def test_window_keeps_only_last_15_minutes(self):
         f = fm.Forecaster()
         feed(f, [24.0] * 900)  # 30 minutes

@@ -48,16 +48,33 @@ class Forecaster:
         self.errors = deque(maxlen=EVAL_KEEP)           # |actual - predicted|
         self.baseline_errors = deque(maxlen=EVAL_KEEP)  # |actual - temperature when predicted|
         self.covered = deque(maxlen=EVAL_KEEP)          # actual inside [low, high]?
+        self.last_uptime = None
 
     # ---------- input ----------
 
-    def add(self, t, temperature, threshold):
-        if self.samples and t - self.samples[-1][0] > MAX_GAP_S:
+    def add(self, t, temperature, threshold, uptime_s=None):
+        """Add a reading. uptime_s (optional) is the device's uptime: when it goes back
+        down, the device has restarted and the old readings may not belong to the new run.
+        A short drop-out without a restart (Wi-Fi or broker) keeps the history."""
+        restarted = (uptime_s is not None and self.last_uptime is not None
+                     and uptime_s < self.last_uptime)
+        if restarted:
+            self.restart()
+        elif self.samples and t - self.samples[-1][0] > MAX_GAP_S:
             self.samples.clear()
+        self.last_uptime = uptime_s
         self.samples.append((t, float(temperature), float(threshold)))
         while self.samples and self.samples[0][0] < t - WINDOW_S:
             self.samples.popleft()
         self._score(t, float(temperature))
+
+    def restart(self):
+        """The device restarted: drop its readings and the predictions
+        still waiting to be scored (they were made from the old readings). The error
+        history is kept: it is the model's track record for this device."""
+        self.samples.clear()
+        self.pending.clear()
+        self.last_uptime = None
 
     def _score(self, t, actual):
         while self.pending and self.pending[0][0] <= t:

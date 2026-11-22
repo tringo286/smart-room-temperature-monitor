@@ -116,7 +116,7 @@ The `forecaster` service (in `server/forecaster/`, started with the rest of the 
 3. Every 10 seconds it publishes the predicted temperature in 10 minutes with a 95 % prediction interval, the warming rate, and the minutes until the threshold (only if it would be reached within an hour) to `smartroom/<id>/forecast`.
 4. It scores itself: every prediction is compared with the reading that actually arrives 10 minutes later. The mean absolute error is published next to that of a naive baseline ("in 10 minutes it will be the same as now"), so the dashboard shows whether the model is better than guessing. It also publishes how often the 95 % range really contained the reading.
 
-The first forecast appears after 5 minutes of readings. If the device goes offline for more than a minute, the forecaster starts over, and the NodeMCU ignores forecasts older than 2 minutes.
+The first forecast appears after 5 minutes of readings. If the device sends no readings for more than a minute, or restarts (its uptime goes back to zero), the forecaster starts over, and the NodeMCU ignores forecasts older than 2 minutes.
 
 The 95 % range starts from the standard regression formula, which allows for sensor noise and for the DHT11 reporting whole degrees. In simulation with a straight-line warm-up it contained the actual reading about 95 % of the time at both 0.1 °C and 1 °C resolution. The formula cannot know when the trend is about to bend, for example when a heater cycles or the room stops warming up: on a simulated warm-up with a slow 20-minute wave, the formula's range contained the reading only 8 % of the time. So once 10 forecasts have been scored, the range is widened to at least what the measured errors imply (1.96 × 1.25 × MAE, the 95 % range for normally distributed errors), and the dashboard shows the resulting hit rate.
 
@@ -292,9 +292,32 @@ It needs only a C++ compiler (on macOS: `xcode-select --install`). It checks:
 - That the board stays responsive when the MQTT broker is unreachable, and reconnects when it returns
 - That every field the web dashboard, Grafana, the simulator, and the preview mock read is present in the firmware's JSON
 - Forecast handling: the LCD's `Alert in ~N min` line, the forecast fields in `/api/status`, expiry after 2 minutes, and malformed messages
-- The forecast model's unit tests in `tests/forecaster/` (slope and time-to-threshold on a ramp, prediction-interval coverage at 0.1 °C and 1 °C resolution, widening the range to the measured errors, offline gaps, and beating the naive baseline); run them alone with `python3 -m unittest discover tests/forecaster`
+- The forecast model's unit tests in `tests/forecaster/` (slope and time-to-threshold on a ramp, prediction-interval coverage at 0.1 °C and 1 °C resolution, widening the range to the measured errors, offline gaps and device restarts, and beating the naive baseline); run them alone with `python3 -m unittest discover tests/forecaster`
 
-The build uses AddressSanitizer and UndefinedBehaviorSanitizer to catch memory errors. These tests do not replace compiling in the Arduino IDE: they cannot catch ESP8266-specific compile errors, memory limits, timing, or wiring problems.
+The build uses AddressSanitizer and UndefinedBehaviorSanitizer to catch memory errors. These tests do not replace compiling for the ESP8266: they cannot catch ESP8266-specific compile errors, memory limits, timing, or wiring problems.
+
+### Compiling for the ESP8266 from the command line
+
+To check that the sketch builds for the real board without opening the Arduino IDE, use `arduino-cli` (on macOS: `brew install arduino-cli`):
+
+```bash
+arduino-cli config add board_manager.additional_urls https://arduino.esp8266.com/stable/package_esp8266com_index.json
+arduino-cli core update-index && arduino-cli core install esp8266:esp8266
+arduino-cli lib install "DHT sensor library" "Adafruit Unified Sensor" "LiquidCrystal I2C" "PubSubClient"
+arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 --warnings all firmware/smart_room_temperature_monitor
+```
+
+With ESP8266 core 3.1.2 the sketch uses 39 % of RAM (31.6 KB of 80 KB for global variables) and 29 % of flash (312 KB of 1 MB). Our code compiles without warnings; the remaining warnings come from the LCD and MQTT libraries.
+
+### End-to-end system test (server stack)
+
+With the Docker stack running, this test drives the whole pipeline with the simulator as the device (about 17 minutes):
+
+```bash
+python3 tests/system/run_system_test.py
+```
+
+It checks that all containers are healthy; that telemetry arrives every 2 s with every field and is stored in InfluxDB; that threshold and mute commands work and invalid ones are ignored; that the device, Telegraf, and the forecaster recover from a broker restart; that the forecast warns before a slow heat event reaches the threshold and then reports "now"; that the forecast beats the naive baseline; that every query on every Grafana panel returns data; that the broker publishes the Last Will when the device crashes; and that the forecaster starts over when the device restarts instead of mixing in the old readings. It uses its own device id (`systest`) and deletes that device's data afterwards.
 
 ### Previewing the web dashboard without the board
 
@@ -321,4 +344,5 @@ Reload the browser after editing `dashboard_page.h`.
 - `tools/build_grafana_dashboard.py` - Generates the Grafana dashboard JSON.
 - `tests/firmware/` - Firmware tests that run on a computer with fake hardware libraries.
 - `tests/forecaster/` - Unit tests for the forecast model.
+- `tests/system/` - End-to-end test of the running server stack.
 - `docs/` - Dashboard screenshots.
