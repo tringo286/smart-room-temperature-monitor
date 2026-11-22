@@ -34,6 +34,12 @@ const unsigned long MQTT_RETRY_MAX_MS = 60000;
 const unsigned long HISTORY_INTERVAL_MS = 10000;
 const int HISTORY_SIZE = 120;
 
+// Forecasts from server/forecaster arrive every ~10 s; ignore them once they
+// are this old (forecaster or broker stopped).
+const unsigned long FORECAST_MAX_AGE_MS = 120000;
+// LCD line 2 alternates between humidity and the forecast every 4 s.
+const unsigned long LCD_ALTERNATE_MS = 4000;
+
 // Both can be changed at runtime from the web dashboard or over MQTT.
 float alertTemp = 30.0;
 bool buzzerMuted = false;
@@ -58,13 +64,29 @@ float historyHum[HISTORY_SIZE];
 int historyCount = 0;  // number of valid samples
 int historyNext = 0;   // index the next sample is written to
 
+// Latest forecast received over MQTT (see forecastValid()).
+bool hasForecast = false;
+float forecastTemp = NAN;     // predicted temperature in 10 minutes
+float forecastMinutes = NAN;  // minutes until the threshold; 0 = now, -1 = not expected
+unsigned long forecastAt = 0;
+
 String topicTelemetry;     // smartroom/<id>/telemetry      (device -> broker)
 String topicStatus;        // smartroom/<id>/status         (retained online/offline)
 String topicCmdThreshold;  // smartroom/<id>/cmd/threshold  (broker -> device)
 String topicCmdMute;       // smartroom/<id>/cmd/mute       (broker -> device)
+String topicForecast;      // smartroom/<id>/forecast       (forecaster -> device)
 
 bool isAlert() {
   return hasReading && !sensorError && temperature >= alertTemp;
+}
+
+bool forecastValid() {
+  return hasForecast && millis() - forecastAt < FORECAST_MAX_AGE_MS;
+}
+
+// True when the forecaster expects the alert within the next hour.
+bool alertExpectedSoon() {
+  return forecastValid() && forecastMinutes > 0 && forecastMinutes <= 60;
 }
 
 void updateDisplay() {
@@ -77,6 +99,17 @@ void updateDisplay() {
   lcd.setCursor(0, 1);
   if (isAlert()) {
     lcd.print(buzzerMuted ? "HIGH TEMP (mute)" : "HIGH TEMP!      ");
+  } else if (alertExpectedSoon() && (millis() / LCD_ALTERNATE_MS) % 2 == 1) {
+    char line[17];
+    int minutes = (int)(forecastMinutes + 0.5);
+    if (minutes < 1) {
+      snprintf(line, sizeof(line), "%-16s", "Alert in <1 min");
+    } else {
+      snprintf(line, sizeof(line), "Alert in ~%d min", minutes);
+      for (size_t i = strlen(line); i < 16; i++) line[i] = ' ';
+      line[16] = '\0';
+    }
+    lcd.print(line);
   } else {
     lcd.print("Hum:  ");
     lcd.print(humidity, 1);
@@ -144,14 +177,44 @@ bool parseOnOff(String value) {
 
 // ---------- MQTT ----------
 
+// Reads the number stored under "key" in a flat JSON object such as
+// {"temp_in_10m":28.9,"minutes_to_threshold":6.2}. Returns NAN if missing.
+float jsonNumber(const char* json, const char* key) {
+  char pattern[40];
+  snprintf(pattern, sizeof(pattern), "\"%s\":", key);
+  const char* p = strstr(json, pattern);
+  if (p == nullptr) {
+    return NAN;
+  }
+  p += strlen(pattern);
+  char* end;
+  float v = strtod(p, &end);
+  return end == p ? NAN : v;
+}
+
+void onForecast(const char* json) {
+  float temp = jsonNumber(json, "temp_in_10m");
+  float minutes = jsonNumber(json, "minutes_to_threshold");
+  if (isnan(temp) || isnan(minutes) || temp < -40 || temp > 100) {
+    Serial.println("Ignored invalid forecast");
+    return;
+  }
+  hasForecast = true;
+  forecastTemp = temp;
+  forecastMinutes = minutes;
+  forecastAt = millis();
+}
+
 void onMqttMessage(char* topic, byte* payload, unsigned int length) {
-  char value[32];
+  char value[384];  // forecast messages are ~250 bytes; PubSubClient buffer is 512
   unsigned int n = length < sizeof(value) - 1 ? length : sizeof(value) - 1;
   memcpy(value, payload, n);
   value[n] = '\0';
 
   String t = topic;
-  if (t == topicCmdThreshold) {
+  if (t == topicForecast) {
+    onForecast(value);
+  } else if (t == topicCmdThreshold) {
     if (!setAlertThreshold(atof(value))) {
       Serial.print("Ignored invalid threshold: ");
       Serial.println(value);
@@ -191,6 +254,7 @@ void ensureMqttConnected() {
     mqtt.publish(topicStatus.c_str(), "online", true);
     mqtt.subscribe(topicCmdThreshold.c_str());
     mqtt.subscribe(topicCmdMute.c_str());
+    mqtt.subscribe(topicForecast.c_str());
     retryDelay = 0;  // after a future disconnect, try again right away once
   } else {
     if (retryDelay == 0) {
@@ -225,7 +289,7 @@ void handleRoot() {
 
 void handleStatus() {
   String json;
-  json.reserve(384);
+  json.reserve(448);
   json += "{\"device\":\"";
   json += DEVICE_ID;
   json += "\",\"has_reading\":";
@@ -260,6 +324,13 @@ void handleStatus() {
   json += String(millis() / 1000);
   json += ",\"sensor_errors\":";
   json += String(sensorErrorCount);
+  // Forecast: null when none has arrived recently; forecast_minutes is also
+  // null when the room is not heading for an alert.
+  bool fc = forecastValid();
+  json += ",\"forecast_temp\":";
+  appendNumber(json, fc ? forecastTemp : NAN);
+  json += ",\"forecast_minutes\":";
+  appendNumber(json, fc && forecastMinutes >= 0 ? forecastMinutes : NAN);
   json += "}";
 
   server.sendHeader("Cache-Control", "no-store");
@@ -334,6 +405,7 @@ void setup() {
   topicStatus = base + "/status";
   topicCmdThreshold = base + "/cmd/threshold";
   topicCmdMute = base + "/cmd/mute";
+  topicForecast = base + "/forecast";
 
   lcd.setCursor(0, 0);
   lcd.print("Connecting WiFi");

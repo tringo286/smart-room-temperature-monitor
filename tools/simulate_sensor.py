@@ -8,6 +8,8 @@ Last Will, and obeys the same cmd/threshold and cmd/mute commands.
     pip install -r tools/requirements.txt
     python tools/simulate_sensor.py                 # normal room
     python tools/simulate_sensor.py --heatwave 120  # warm past the threshold in ~2 min
+    python tools/simulate_sensor.py --heatwave 900 --swing 0.3 --swing-period 1200
+                                                    # slow, realistic warm-up (forecast demo)
 """
 
 import argparse
@@ -45,6 +47,11 @@ def main():
     p.add_argument("--base-temp", type=float, default=24.0, help="normal room temperature (C)")
     p.add_argument("--heatwave", type=float, metavar="SECONDS", default=0,
                    help="ramp the room up by 9 C over this many seconds, then hold")
+    p.add_argument("--swing", type=float, default=1.5, metavar="C",
+                   help="amplitude of the up-and-down temperature wave (C)")
+    p.add_argument("--swing-period", type=float, default=300, metavar="SECONDS",
+                   help="period of the temperature wave; the default 5 minutes is faster than a real "
+                        "room and makes the 10-minute forecast follow the wave")
     args = p.parse_args()
 
     base = f"smartroom/{args.device}"
@@ -98,7 +105,7 @@ def main():
     hum = 45.0
     while running:
         elapsed = time.time() - start
-        target = args.base_temp + 1.5 * math.sin(elapsed / 300 * 2 * math.pi)
+        target = args.base_temp + args.swing * math.sin(elapsed / args.swing_period * 2 * math.pi)
         if args.heatwave > 0:
             target += 9.0 * min(1.0, elapsed / args.heatwave)
         # Drift toward the target with some sensor noise.

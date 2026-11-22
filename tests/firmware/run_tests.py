@@ -6,7 +6,9 @@
    with all warnings and AddressSanitizer/UndefinedBehaviorSanitizer on.
 2. Runs the behaviour tests (LCD, buzzer, MQTT, web API, history, ...).
 3. Checks that the JSON the firmware produces is valid and has every field
-   the web dashboard, Grafana dashboard, simulator, and preview mock use.
+   the web dashboard, Grafana dashboard, simulator, and preview mock use, and
+   that the forecaster's messages fit what the firmware and Grafana expect.
+4. Runs the forecast model's unit tests (tests/forecaster).
 
     python3 tests/firmware/run_tests.py
 
@@ -130,6 +132,24 @@ def contract_checks(samples):
         used_fields |= set(re.findall(r'"(\w+)"', args)) - {"mean", "max", "min"}
     check(not used_fields - telemetry.keys(), f"Grafana queries fields the firmware doesn't send: {used_fields - telemetry.keys()}")
 
+    # Forecast: numbers when one has arrived, null before.
+    with_fc = parsed["status_forecast"][0]
+    for key in ("forecast_temp", "forecast_minutes"):
+        check(isinstance(with_fc[key], (int, float)), f"status.{key} should be a number after a forecast, got {with_fc[key]!r}")
+        check(status[key] is None, f"status.{key} should be null before any forecast, got {status[key]!r}")
+
+    # The forecaster's messages: every field Grafana queries exists, and a
+    # worst-case message fits the firmware's 384-byte copy buffer.
+    fm = load_module(ROOT / "server" / "forecaster" / "forecast_model.py", "forecast_model")
+    used_fc = set()
+    for args in re.findall(r"q_forecast(?:_last)?\(([^)]*)\)", grafana):
+        used_fc |= set(re.findall(r'"(\w+)"', args))
+    check(used_fc and not used_fc - fm.OUTPUT_FIELDS,
+          f"Grafana queries forecast fields the forecaster doesn't send: {used_fc - fm.OUTPUT_FIELDS}")
+    worst = {k: -123.4567 for k in fm.OUTPUT_FIELDS}
+    worst_len = len(json.dumps(worst, separators=(",", ":")))
+    check(worst_len < 384, f"forecast message can be {worst_len} bytes; the firmware copies at most 383")
+
     # The simulator and the preview mock stay in step with the firmware.
     sim = (ROOT / "tools" / "simulate_sensor.py").read_text()
     sim_payload = sim[sim.index("payload = {"):]
@@ -147,6 +167,18 @@ def contract_checks(samples):
     print(f"  status fields: {len(status)}, page reads {len(used_status)}; "
           f"telemetry fields: {len(telemetry)}, Grafana queries {len(used_fields)}")
     print(f"  example telemetry: {samples['telemetry'][0]}")
+    print(f"  forecast fields Grafana queries: {len(used_fc)}; longest forecast message {worst_len} bytes")
+
+
+def forecast_model_tests():
+    print("\nForecast model unit tests (tests/forecaster):")
+    r = subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", str(ROOT / "tests" / "forecaster")],
+                       capture_output=True, text=True)
+    summary = [l for l in r.stderr.splitlines() if l.startswith(("Ran ", "OK", "FAILED"))]
+    print("  " + "  ".join(summary))
+    if r.returncode != 0:
+        print(r.stderr)
+    return r.returncode == 0
 
 
 def main():
@@ -157,6 +189,7 @@ def main():
         contract_checks(samples)
     except (KeyError, IndexError, ValueError) as e:
         problems.append(f"could not run contract checks (a test producing sample JSON probably failed): {e!r}")
+    ok = forecast_model_tests() and ok
     if problems:
         print("\nContract problems:")
         for p in problems:

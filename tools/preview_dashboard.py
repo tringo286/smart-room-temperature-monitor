@@ -13,6 +13,7 @@ import argparse
 import json
 import math
 import random
+import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -40,6 +41,11 @@ def heat_index_c(temp_c, rh):
     return (hi - 32) * 5 / 9
 
 
+# The mock's forecast comes from the real forecast model in server/forecaster.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "server" / "forecaster"))
+from forecast_model import Forecaster  # noqa: E402
+
+
 class MockDevice:
     def __init__(self, hot):
         self.start = time.time()
@@ -53,6 +59,9 @@ class MockDevice:
         self.last_history = self.start
         temps = [t for t, _ in self.history]
         self.min_temp, self.max_temp = min(temps), max(temps)
+        self.forecaster = Forecaster()
+        for i, (t, _) in enumerate(self.history):
+            self.forecaster.add(self.start - (HISTORY_SIZE - i) * HISTORY_INTERVAL_S, t, self.threshold)
 
     def sample(self, at):
         k = at / 60
@@ -67,6 +76,9 @@ class MockDevice:
             self.history = self.history[1:] + [(temp, hum)]
             self.last_history = now
         self.min_temp, self.max_temp = min(self.min_temp, temp), max(self.max_temp, temp)
+        self.forecaster.add(now, temp, self.threshold)
+        fc = self.forecaster.forecast()
+        eta = fc["minutes_to_threshold"] if fc else None
         return {
             "device": "room1", "has_reading": True, "sensor_error": False,
             "temperature": temp, "humidity": hum, "heat_index": round(heat_index_c(temp, hum), 1),
@@ -74,6 +86,8 @@ class MockDevice:
             "threshold": self.threshold, "alert": temp >= self.threshold, "muted": self.muted,
             "mqtt": True, "mqtt_host": "10.0.0.25", "ip": "10.0.0.118",
             "rssi": random.randint(-63, -57), "uptime_s": int(now - self.boot), "sensor_errors": 2,
+            "forecast_temp": round(fc["temp_in_10m"], 1) if fc else None,
+            "forecast_minutes": eta if eta is not None and eta >= 0 else None,
         }
 
     def history_json(self):

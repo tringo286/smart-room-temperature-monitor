@@ -94,9 +94,10 @@ static void test_boot_connects_to_mqtt() {
   CHECK_EQ(mqtt.published.front().topic, std::string("smartroom/room1/status"));
   CHECK_EQ(mqtt.published.front().payload, std::string("online"));
   CHECK(mqtt.published.front().retained);
-  CHECK_EQ(mqtt.subscriptions.size(), (size_t)2);
+  CHECK_EQ(mqtt.subscriptions.size(), (size_t)3);
   CHECK(std::find(mqtt.subscriptions.begin(), mqtt.subscriptions.end(), "smartroom/room1/cmd/threshold") != mqtt.subscriptions.end());
   CHECK(std::find(mqtt.subscriptions.begin(), mqtt.subscriptions.end(), "smartroom/room1/cmd/mute") != mqtt.subscriptions.end());
+  CHECK(std::find(mqtt.subscriptions.begin(), mqtt.subscriptions.end(), "smartroom/room1/forecast") != mqtt.subscriptions.end());
 }
 
 static void test_status_before_first_reading() {
@@ -333,7 +334,7 @@ static void test_reconnects_after_broker_restart() {
   mqtt.subscriptions.clear();
   run_for(65000);  // within the longest retry delay
   CHECK(mqtt.connected());
-  CHECK_EQ(mqtt.subscriptions.size(), (size_t)2);
+  CHECK_EQ(mqtt.subscriptions.size(), (size_t)3);
   CHECK(!mqtt.published.empty() && mqtt.published.front().payload == "online");
   CHECK(!telemetry().empty());
 }
@@ -358,6 +359,115 @@ static void test_web_page_and_404() {
   CHECK(contains(r.body, "</html>"));
   CHECK_EQ(get("/nope").code, 404);
   std::cout << "    page size " << r.body.size() << " bytes\n";
+}
+
+// A full message in the format server/forecaster publishes (compact JSON).
+static std::string forecast_msg(const char* temp, const char* minutes) {
+  return std::string("{\"temp_in_10m\":") + temp + ",\"temp_in_10m_low\":27.71,\"temp_in_10m_high\":29.53,"
+         "\"slope_c_per_min\":0.1234,\"minutes_to_threshold\":" + minutes +
+         ",\"samples\":450,\"mae_10m\":0.165,\"mae_baseline_10m\":0.683,\"evaluations\":50}";
+}
+
+// Collects the distinct texts LCD line 2 shows over `ms` of running.
+static std::vector<std::string> lcd_line2_over(unsigned long ms) {
+  std::vector<std::string> seen;
+  unsigned long end = fake::now_ms + ms;
+  while (fake::now_ms < end) {
+    loop();
+    fake::now_ms += 50;
+    std::string l = lcd.line(1);
+    if (std::find(seen.begin(), seen.end(), l) == seen.end()) seen.push_back(l);
+  }
+  return seen;
+}
+
+static bool shown(const std::vector<std::string>& seen, const std::string& text) {
+  return std::find(seen.begin(), seen.end(), text) != seen.end();
+}
+
+static void test_forecast_status_before_any() {
+  boot();
+  run_for(2500);
+  auto r = get("/api/status");
+  CHECK(contains(r.body, "\"forecast_temp\":null"));
+  CHECK(contains(r.body, "\"forecast_minutes\":null"));
+}
+
+static void test_forecast_shown_on_lcd_and_web() {
+  boot();
+  run_for(2500);
+  mqtt.deliver("smartroom/room1/forecast", forecast_msg("28.62", "6.2"));
+  auto r = get("/api/status");
+  CHECK(contains(r.body, "\"forecast_temp\":28.6"));
+  CHECK(contains(r.body, "\"forecast_minutes\":6.2"));
+  emit("status_forecast", r.body);
+  // LCD line 2 alternates between humidity and the forecast.
+  auto seen = lcd_line2_over(10000);
+  CHECK(shown(seen, "Hum:  45.0%"));
+  CHECK(shown(seen, "Alert in ~6 min"));
+  CHECK_EQ(seen.size(), (size_t)2);
+}
+
+static void test_forecast_lcd_wording() {
+  boot();
+  run_for(2500);
+  mqtt.deliver("smartroom/room1/forecast", forecast_msg("29.9", "0.4"));
+  CHECK(shown(lcd_line2_over(10000), "Alert in <1 min"));
+  mqtt.deliver("smartroom/room1/forecast", forecast_msg("29.9", "59.6"));
+  CHECK(shown(lcd_line2_over(10000), "Alert in ~60 min"));
+}
+
+static void test_forecast_not_rising() {
+  boot();
+  run_for(2500);
+  mqtt.deliver("smartroom/room1/forecast", forecast_msg("24.1", "-1"));
+  auto r = get("/api/status");
+  CHECK(contains(r.body, "\"forecast_temp\":24.1"));
+  CHECK(contains(r.body, "\"forecast_minutes\":null"));
+  auto seen = lcd_line2_over(10000);
+  CHECK_EQ(seen.size(), (size_t)1);
+  CHECK(shown(seen, "Hum:  45.0%"));
+}
+
+static void test_forecast_hidden_while_alerting() {
+  fake::sensor_temp = 31.0f;
+  boot();
+  run_for(2500);
+  mqtt.deliver("smartroom/room1/forecast", forecast_msg("32.0", "0"));
+  auto seen = lcd_line2_over(10000);
+  CHECK_EQ(seen.size(), (size_t)1);
+  CHECK(shown(seen, "HIGH TEMP!"));
+  CHECK(contains(get("/api/status").body, "\"forecast_minutes\":0.0"));
+}
+
+static void test_forecast_expires() {
+  boot();
+  run_for(2500);
+  mqtt.deliver("smartroom/room1/forecast", forecast_msg("28.6", "6.2"));
+  run_for(110000);
+  CHECK(contains(get("/api/status").body, "\"forecast_temp\":28.6"));
+  run_for(15000);  // > 2 minutes since the last forecast: forecaster is gone
+  CHECK(contains(get("/api/status").body, "\"forecast_temp\":null"));
+  auto seen = lcd_line2_over(10000);
+  CHECK_EQ(seen.size(), (size_t)1);
+  CHECK(shown(seen, "Hum:  45.0%"));
+}
+
+static void test_bad_forecast_ignored() {
+  boot();
+  run_for(2500);
+  mqtt.deliver("smartroom/room1/forecast", "hello");
+  mqtt.deliver("smartroom/room1/forecast", "{\"temp_in_10m\":\"warm\",\"minutes_to_threshold\":5}");
+  mqtt.deliver("smartroom/room1/forecast", "{\"temp_in_10m\":28.6}");
+  mqtt.deliver("smartroom/room1/forecast", "{\"temp_in_10m\":999,\"minutes_to_threshold\":5}");
+  mqtt.deliver("smartroom/room1/forecast", "");
+  CHECK(contains(get("/api/status").body, "\"forecast_temp\":null"));
+  // A message longer than the copy buffer is cut, not overflowed.
+  mqtt.deliver("smartroom/room1/forecast", forecast_msg("28.6", "6.2") + std::string(600, ' '));
+  CHECK(contains(get("/api/status").body, "\"forecast_temp\":28.6"));
+  // A key must not match a longer key that starts the same way.
+  mqtt.deliver("smartroom/room1/forecast", "{\"temp_in_10m_low\":1,\"temp_in_10m\":27.5,\"minutes_to_threshold\":-1}");
+  CHECK(contains(get("/api/status").body, "\"forecast_temp\":27.5"));
 }
 
 // ---------- runner ----------
@@ -388,6 +498,13 @@ int main() {
       {"reconnects after broker restart", test_reconnects_after_broker_restart},
       {"no MQTT attempts without Wi-Fi", test_no_mqtt_attempts_without_wifi},
       {"web page served, unknown path 404", test_web_page_and_404},
+      {"forecast: none yet -> nulls in status", test_forecast_status_before_any},
+      {"forecast: shown on LCD and web", test_forecast_shown_on_lcd_and_web},
+      {"forecast: LCD wording (<1 min, ~60 min)", test_forecast_lcd_wording},
+      {"forecast: not rising", test_forecast_not_rising},
+      {"forecast: hidden on LCD while alerting", test_forecast_hidden_while_alerting},
+      {"forecast: expires after 2 minutes", test_forecast_expires},
+      {"forecast: bad messages ignored", test_bad_forecast_ignored},
   };
 
   int failed = 0;

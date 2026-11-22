@@ -145,6 +145,8 @@ footer{color:var(--muted);font-size:12px;text-align:center;margin-top:20px}
       <div class="rows">
         <div><span>Range since boot</span><span id="range">&ndash;</span></div>
         <div><span>Trend (last 10 min)</span><span id="trend">&ndash;</span></div>
+        <div><span>Forecast in 10 min</span><span id="fcTemp">&ndash;</span></div>
+        <div><span>Alert expected</span><span id="fcEta">&ndash;</span></div>
       </div>
     </section>
 
@@ -257,6 +259,7 @@ function renderStatus() {
     $('feelsTag').style.color = col;
     $('range').textContent = fmt(s.min_temp) + ' – ' + fmt(s.max_temp) + '°C';
   }
+  renderForecast(s);
 
   const [mx1, my1] = pt(clamp((s.threshold - T_MIN) / (T_MAX - T_MIN), 0, 1), 70);
   const [mx2, my2] = pt(clamp((s.threshold - T_MIN) / (T_MAX - T_MIN), 0, 1), 94);
@@ -274,6 +277,23 @@ function renderStatus() {
   const u = s.uptime_s, d = Math.floor(u / 86400), h = Math.floor(u % 86400 / 3600), mi = Math.floor(u % 3600 / 60);
   $('uptime').textContent = (d ? d + 'd ' : '') + (d || h ? h + 'h ' : '') + mi + 'm';
   $('errs').textContent = s.sensor_errors;
+}
+
+// From server/forecaster over MQTT; null when the forecaster isn't running yet.
+function renderForecast(s) {
+  const eta = $('fcEta');
+  eta.style.color = '';
+  if (s.forecast_temp == null) {
+    $('fcTemp').textContent = '–';
+    eta.textContent = 'No forecast yet';
+    eta.style.color = 'var(--muted)';
+    return;
+  }
+  $('fcTemp').textContent = fmt(s.forecast_temp) + '°C';
+  const m = s.forecast_minutes;
+  if (s.alert || m === 0) { eta.textContent = 'Now'; eta.style.color = 'var(--bad)'; }
+  else if (m == null) { eta.textContent = 'Not soon'; eta.style.color = 'var(--ok)'; }
+  else { eta.textContent = m < 1 ? 'In < 1 min' : 'In ~' + Math.round(m) + ' min'; eta.style.color = 'var(--warn)'; }
 }
 
 function renderTrend() {

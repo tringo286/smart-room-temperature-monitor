@@ -1,4 +1,7 @@
 # Data pipeline: NodeMCU --MQTT--> Mosquitto --> Telegraf --> InfluxDB --> Grafana
+#                                     ^  |
+#                         forecast    |  v  telemetry
+#                                  forecaster
 #
 # The usernames, passwords, and token below are for a local class demo only.
 # Change them before exposing this stack outside your own network.
@@ -38,6 +41,14 @@ services:
       INFLUX_TOKEN: smartroom-dev-token
     volumes:
       - ./telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+
+  # Reads telemetry, publishes a 10-minute temperature forecast back to MQTT
+  # (smartroom/<device>/forecast) for Grafana and the NodeMCU's LCD/web page.
+  forecaster:
+    build: ./forecaster
+    restart: unless-stopped
+    depends_on:
+      - mosquitto
 
   grafana:
     image: grafana/grafana:11.4.0

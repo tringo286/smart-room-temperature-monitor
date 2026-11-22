@@ -15,6 +15,8 @@ flowchart LR
     MQ --> TG[Telegraf]
     TG --> DB[(InfluxDB<br/>time series)]
     DB --> GF[Grafana dashboard]
+    MQ -- "telemetry" --> FC[Forecaster<br/>trend model]
+    FC -- "MQTT forecast" --> MQ
 ```
 
 Everything to the right of the NodeMCU runs in Docker on a laptop (or Raspberry Pi) on the same Wi-Fi network (see `server/`).
@@ -103,6 +105,29 @@ float alertTemp = 30.0;
 
 When the temperature reaches or exceeds this value, the LCD displays a high-temperature warning and the buzzer sounds. The web dashboard and Grafana also report the alert. The threshold can be changed and the buzzer muted at runtime from the web dashboard or over MQTT (see [MQTT Topics](#mqtt-topics)).
 
+Before the alert, the [temperature forecast](#temperature-forecast) gives an early warning: when the room is warming up toward the threshold, the LCD alternates the humidity line with `Alert in ~6 min`, and the web dashboard and Grafana show the same estimate.
+
+## Temperature Forecast
+
+The `forecaster` service (in `server/forecaster/`, started with the rest of the Docker stack) predicts the room temperature 10 minutes ahead and how long until the alert threshold is reached:
+
+1. It subscribes to `smartroom/+/telemetry` and keeps the last 15 minutes of readings for each device.
+2. It fits a straight line (temperature against time) by weighted least squares. Newer readings count more (the weight halves every 4 minutes), so the trend follows the room quickly when it stops warming up.
+3. Every 10 seconds it publishes the predicted temperature in 10 minutes with a 95 % prediction interval, the warming rate, and the minutes until the threshold (only if it would be reached within an hour) to `smartroom/<id>/forecast`.
+4. It scores itself: every prediction is compared with the reading that actually arrives 10 minutes later. The mean absolute error is published next to that of a naive baseline ("in 10 minutes it will be the same as now"), so the dashboard shows whether the model is better than guessing. It also publishes how often the 95 % range really contained the reading.
+
+The first forecast appears after 5 minutes of readings. If the device goes offline for more than a minute, the forecaster starts over, and the NodeMCU ignores forecasts older than 2 minutes.
+
+The 95 % range starts from the standard regression formula, which allows for sensor noise and for the DHT11 reporting whole degrees. In simulation with a straight-line warm-up it contained the actual reading about 95 % of the time at both 0.1 °C and 1 °C resolution. The formula cannot know when the trend is about to bend, for example when a heater cycles or the room stops warming up: on a simulated warm-up with a slow 20-minute wave, the formula's range contained the reading only 8 % of the time. So once 10 forecasts have been scored, the range is widened to at least what the measured errors imply (1.96 × 1.25 × MAE, the 95 % range for normally distributed errors), and the dashboard shows the resulting hit rate.
+
+Example forecast message:
+
+```json
+{"temp_in_10m":28.62,"temp_in_10m_low":27.71,"temp_in_10m_high":29.53,"slope_c_per_min":0.1234,"minutes_to_threshold":6.2,"samples":450,"mae_10m":0.165,"mae_baseline_10m":0.683,"evaluations":50,"interval_coverage":94.0}
+```
+
+`mae_10m`, `mae_baseline_10m`, `evaluations`, and `interval_coverage` appear once the first predictions have been scored, about 15 minutes after the device starts. To run the forecaster outside Docker: `pip install paho-mqtt` and `python3 server/forecaster/forecaster.py --host localhost`.
+
 ## Running the Project
 
 ### 1. Start the server stack
@@ -146,7 +171,7 @@ The web dashboard updates every two seconds and the Grafana dashboard every five
 The NodeMCU serves a self-contained dashboard (no external libraries or fonts, so it works on a network without internet access). It shows:
 
 - Temperature and humidity gauges, with the alert threshold marked and the humidity comfort range shaded
-- The "feels like" heat index, the temperature range since boot, and the 10-minute trend
+- The "feels like" heat index, the temperature range since boot, the 10-minute trend, and the forecast (temperature in 10 minutes and when the alert is expected)
 - A chart of the last 20 minutes, from a history buffer kept on the board
 - Controls to change the alert threshold and mute the buzzer
 - Wi-Fi signal, MQTT connection, uptime, and sensor error count
@@ -172,10 +197,11 @@ Anyone on the same network can change the settings, so use this on a trusted net
 
 ## Grafana Dashboard
 
-The **Smart Room Monitor** dashboard opens as Grafana's home page and has three sections:
+The **Smart Room Monitor** dashboard opens as Grafana's home page and has four sections:
 
 - **Now**: temperature and humidity gauges, the feels-like temperature with a sparkline, the alert state, whether the device is online (from the MQTT Last Will), the current threshold, and whether the buzzer is muted
-- **History**: temperature (with feels-like and the alert threshold), humidity, and an alert timeline. Green bands mark the comfort ranges, and gaps mean the device was offline.
+- **Forecast (next 10 minutes)**: predicted temperature, minutes until the alert is expected, the warming rate in °C per hour, the forecast error next to the naive baseline's error, and how often the 95 % range was right
+- **History**: temperature (with feels-like, the alert threshold, and the forecast), humidity, and an alert timeline. Green bands mark the comfort ranges, and gaps mean the device was offline. The blue dashed forecast line is drawn at the time each prediction was for, so it runs 10 minutes ahead of the real temperature (the default time range ends 10 minutes in the future), and the shaded band is its 95 % range.
 - **Summary for the selected time range**: lowest, highest, and average temperature, average humidity, percentage of time in alert, and number of readings stored
 
 Change the time range in the top-right corner to summarise any period. For a presentation, add `&kiosk` to the URL to hide Grafana's menus.
@@ -192,6 +218,7 @@ The dashboard is generated by `tools/build_grafana_dashboard.py`. To change it, 
 | `smartroom/<id>/status` | device → broker | `online` / `offline` (retained; `offline` is the MQTT Last Will, sent by the broker if the device disconnects unexpectedly) |
 | `smartroom/<id>/cmd/threshold` | broker → device | New alert threshold in °C, e.g. `28.5` |
 | `smartroom/<id>/cmd/mute` | broker → device | `1` / `0` (also `true`/`false`, `on`/`off`) |
+| `smartroom/<id>/forecast` | forecaster → device | JSON forecast every 10 s (see [Temperature Forecast](#temperature-forecast)); also stored in InfluxDB as `room_forecast` |
 
 Example telemetry message:
 
@@ -240,6 +267,14 @@ python tools/simulate_sensor.py --device sim1                 # normal room
 python tools/simulate_sensor.py --device sim1 --heatwave 120  # warms 9°C over 2 minutes, triggers the alert
 ```
 
+To demo the forecast, warm the room slowly and calm the simulator's up-and-down wave. By default the wave swings ±1.5 °C every 5 minutes, faster than a real room, and the 10-minute forecast follows the wave instead of the warm-up:
+
+```bash
+python tools/simulate_sensor.py --device demo --heatwave 1200 --swing 0.3 --swing-period 1200
+```
+
+The first forecast appears after 5 minutes, and `Alert expected in` then counts down from about 7 minutes. The forecast error panels fill in after about 15 minutes; for a longer demo that still shows the countdown by then, use `--heatwave 2400`.
+
 Then pick `sim1` from the **Device** menu in Grafana.
 
 ### Firmware tests (no board needed)
@@ -256,6 +291,8 @@ It needs only a C++ compiler (on macOS: `xcode-select --install`). It checks:
 - Sensor failures, the 20-minute history buffer, and telemetry size limits
 - That the board stays responsive when the MQTT broker is unreachable, and reconnects when it returns
 - That every field the web dashboard, Grafana, the simulator, and the preview mock read is present in the firmware's JSON
+- Forecast handling: the LCD's `Alert in ~N min` line, the forecast fields in `/api/status`, expiry after 2 minutes, and malformed messages
+- The forecast model's unit tests in `tests/forecaster/` (slope and time-to-threshold on a ramp, prediction-interval coverage at 0.1 °C and 1 °C resolution, widening the range to the measured errors, offline gaps, and beating the naive baseline); run them alone with `python3 -m unittest discover tests/forecaster`
 
 The build uses AddressSanitizer and UndefinedBehaviorSanitizer to catch memory errors. These tests do not replace compiling in the Arduino IDE: they cannot catch ESP8266-specific compile errors, memory limits, timing, or wiring problems.
 
@@ -274,7 +311,8 @@ Reload the browser after editing `dashboard_page.h`.
 
 - `firmware/smart_room_temperature_monitor/smart_room_temperature_monitor.ino` - Arduino source code for the NodeMCU: sensor, LCD, buzzer, Wi-Fi, web server and JSON API, and MQTT client.
 - `firmware/smart_room_temperature_monitor/dashboard_page.h` - The web dashboard page (HTML, CSS, and JavaScript) stored in flash.
-- `server/docker-compose.yml` - Mosquitto, Telegraf, InfluxDB, and Grafana.
+- `server/docker-compose.yml` - Mosquitto, Telegraf, InfluxDB, Grafana, and the forecaster.
+- `server/forecaster/` - Temperature forecast service (`forecast_model.py` is the model, `forecaster.py` the MQTT service).
 - `server/mosquitto/mosquitto.conf` - MQTT broker settings.
 - `server/telegraf/telegraf.conf` - Subscribes to the MQTT topics and writes to InfluxDB.
 - `server/grafana/` - Preconfigured InfluxDB data source and the Smart Room Monitor dashboard.
@@ -282,4 +320,5 @@ Reload the browser after editing `dashboard_page.h`.
 - `tools/preview_dashboard.py` - Local preview of the web dashboard with mock data.
 - `tools/build_grafana_dashboard.py` - Generates the Grafana dashboard JSON.
 - `tests/firmware/` - Firmware tests that run on a computer with fake hardware libraries.
+- `tests/forecaster/` - Unit tests for the forecast model.
 - `docs/` - Dashboard screenshots.

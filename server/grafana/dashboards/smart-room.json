@@ -11,7 +11,7 @@
   "refresh": "5s",
   "time": {
     "from": "now-30m",
-    "to": "now"
+    "to": "now+10m"
   },
   "timepicker": {
     "refresh_intervals": [
@@ -558,7 +558,7 @@
     {
       "id": 9,
       "type": "row",
-      "title": "History",
+      "title": "Forecast (next 10 minutes)",
       "collapsed": false,
       "gridPos": {
         "x": 0,
@@ -570,6 +570,429 @@
     },
     {
       "id": 10,
+      "type": "stat",
+      "title": "In 10 minutes",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"date\"\nfrom(bucket: \"smartroom\")\n  |> range(start: date.sub(d: 0s, from: v.timeRangeStart), stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"room_forecast\" and r.device == \"${device}\")\n  |> filter(fn: (r) => r._field == \"temp_in_10m\")\n  |> last()\n  |> keep(columns: [\"_time\", \"_value\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 18
+              },
+              {
+                "color": "orange",
+                "value": 27
+              },
+              {
+                "color": "red",
+                "value": 30
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "description": "Predicted temperature 10 minutes from now: weighted linear trend over the last 15 minutes of readings (see server/forecaster/forecast_model.py)."
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Alert expected in",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 9,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"date\"\nfrom(bucket: \"smartroom\")\n  |> range(start: date.sub(d: 0s, from: v.timeRangeStart), stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"room_forecast\" and r.device == \"${device}\")\n  |> filter(fn: (r) => r._field == \"minutes_to_threshold\")\n  |> last()\n  |> keep(columns: [\"_time\", \"_value\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "m",
+          "decimals": 0,
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "-1": {
+                  "text": "Not expected",
+                  "color": "green",
+                  "index": 0
+                },
+                "0": {
+                  "text": "Now",
+                  "color": "red",
+                  "index": 1
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 10
+              },
+              {
+                "color": "yellow",
+                "value": 30
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {
+          "valueSize": 34
+        }
+      },
+      "description": "Minutes until the room reaches the alert threshold at the current warming rate. \"Not expected\" if it is not rising, or would take more than an hour."
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Trend",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 9,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"date\"\nfrom(bucket: \"smartroom\")\n  |> range(start: date.sub(d: 0s, from: v.timeRangeStart), stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"room_forecast\" and r.device == \"${device}\")\n  |> filter(fn: (r) => r._field == \"slope_c_per_min\")\n  |> last()\n  |> map(fn: (r) => ({r with _value: float(v: r._value) * 60.0}))\n  |> keep(columns: [\"_time\", \"_value\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: °C/h",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              },
+              {
+                "color": "text",
+                "value": -0.5
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 3
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "description": "Current warming (+) or cooling (−) rate from the forecast model."
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Forecast error (MAE)",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 9,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"date\"\nfrom(bucket: \"smartroom\")\n  |> range(start: date.sub(d: 0s, from: v.timeRangeStart), stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"room_forecast\" and r.device == \"${device}\")\n  |> filter(fn: (r) => r._field == \"mae_10m\")\n  |> last()\n  |> keep(columns: [\"_time\", \"_value\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "decimals": 2,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "green"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "description": "Mean absolute error of the last 50 ten-minute forecasts, checked against the reading that actually arrived. Lower is better."
+    },
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "Baseline error",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 9,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"date\"\nfrom(bucket: \"smartroom\")\n  |> range(start: date.sub(d: 0s, from: v.timeRangeStart), stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"room_forecast\" and r.device == \"${device}\")\n  |> filter(fn: (r) => r._field == \"mae_baseline_10m\")\n  |> last()\n  |> keep(columns: [\"_time\", \"_value\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "decimals": 2,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "description": "Same error for a naive guess (\"in 10 minutes it will be what it is now\"). The model is useful when its error is lower than this."
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "95% range hit rate",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 9,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"date\"\nfrom(bucket: \"smartroom\")\n  |> range(start: date.sub(d: 0s, from: v.timeRangeStart), stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"room_forecast\" and r.device == \"${device}\")\n  |> filter(fn: (r) => r._field == \"interval_coverage\")\n  |> last()\n  |> keep(columns: [\"_time\", \"_value\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 80
+              },
+              {
+                "color": "green",
+                "value": 90
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "description": "How often the real reading 10 minutes later fell inside the forecast's 95 % range (last 50 forecasts). Once 10 forecasts have been checked, the range is widened to match the errors actually measured."
+    },
+    {
+      "id": 16,
+      "type": "row",
+      "title": "History",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 17,
       "type": "timeseries",
       "title": "Temperature",
       "datasource": {
@@ -578,7 +1001,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 9,
+        "y": 14,
         "w": 24,
         "h": 10
       },
@@ -590,6 +1013,14 @@
             "uid": "influxdb"
           },
           "query": "from(bucket: \"smartroom\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"room_climate\" and r.device == \"${device}\")\n  |> filter(fn: (r) => r._field == \"temperature\" or r._field == \"heat_index\" or r._field == \"threshold\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: true)\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> drop(columns: [\"_start\", \"_stop\", \"_measurement\", \"device\"])"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "import \"date\"\nfrom(bucket: \"smartroom\")\n  |> range(start: date.sub(d: 10m, from: v.timeRangeStart), stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"room_forecast\" and r.device == \"${device}\")\n  |> filter(fn: (r) => r._field == \"temp_in_10m\" or r._field == \"temp_in_10m_low\" or r._field == \"temp_in_10m_high\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: true)\n  |> timeShift(duration: 10m)\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> drop(columns: [\"_start\", \"_stop\", \"_measurement\", \"device\"])"
         }
       ],
       "fieldConfig": {
@@ -720,6 +1151,113 @@
                 }
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "temp_in_10m"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Forecast (10 min ahead)"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8AB8FF"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    4,
+                    6
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "temp_in_10m_high"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Forecast 95% range"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8AB8FF"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 14
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 0
+              },
+              {
+                "id": "custom.fillBelowTo",
+                "value": "temp_in_10m_low"
+              },
+              {
+                "id": "custom.gradientMode",
+                "value": "none"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "temp_in_10m_low"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Forecast low"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8AB8FF"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 0
+              },
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": true,
+                  "tooltip": false,
+                  "viz": false
+                }
+              }
+            ]
           }
         ]
       },
@@ -738,11 +1276,11 @@
           "sort": "none"
         }
       },
-      "description": "Green band: comfort range 20–26 °C. Gaps mean the device was offline.",
+      "description": "Green band: comfort range 20–26 °C. Gaps mean the device was offline. The blue dashed line is the forecast made 10 minutes earlier for each moment, with its 95 % range, so it runs 10 minutes ahead of the real temperature.",
       "interval": "10s"
     },
     {
-      "id": 11,
+      "id": 18,
       "type": "timeseries",
       "title": "Humidity",
       "datasource": {
@@ -751,7 +1289,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 19,
+        "y": 24,
         "w": 12,
         "h": 8
       },
@@ -845,7 +1383,7 @@
       "interval": "10s"
     },
     {
-      "id": 12,
+      "id": 19,
       "type": "state-timeline",
       "title": "Alert history",
       "datasource": {
@@ -854,7 +1392,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 19,
+        "y": 24,
         "w": 12,
         "h": 8
       },
@@ -955,20 +1493,20 @@
       "interval": "10s"
     },
     {
-      "id": 13,
+      "id": 20,
       "type": "row",
       "title": "Summary for the selected time range",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 27,
+        "y": 32,
         "w": 24,
         "h": 1
       },
       "panels": []
     },
     {
-      "id": 14,
+      "id": 21,
       "type": "stat",
       "title": "Lowest",
       "datasource": {
@@ -977,7 +1515,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 28,
+        "y": 33,
         "w": 4,
         "h": 4
       },
@@ -1040,7 +1578,7 @@
       }
     },
     {
-      "id": 15,
+      "id": 22,
       "type": "stat",
       "title": "Highest",
       "datasource": {
@@ -1049,7 +1587,7 @@
       },
       "gridPos": {
         "x": 4,
-        "y": 28,
+        "y": 33,
         "w": 4,
         "h": 4
       },
@@ -1112,7 +1650,7 @@
       }
     },
     {
-      "id": 16,
+      "id": 23,
       "type": "stat",
       "title": "Average temperature",
       "datasource": {
@@ -1121,7 +1659,7 @@
       },
       "gridPos": {
         "x": 8,
-        "y": 28,
+        "y": 33,
         "w": 4,
         "h": 4
       },
@@ -1184,7 +1722,7 @@
       }
     },
     {
-      "id": 17,
+      "id": 24,
       "type": "stat",
       "title": "Average humidity",
       "datasource": {
@@ -1193,7 +1731,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 28,
+        "y": 33,
         "w": 4,
         "h": 4
       },
@@ -1236,7 +1774,7 @@
       }
     },
     {
-      "id": 18,
+      "id": 25,
       "type": "stat",
       "title": "Time in alert",
       "datasource": {
@@ -1245,7 +1783,7 @@
       },
       "gridPos": {
         "x": 16,
-        "y": 28,
+        "y": 33,
         "w": 4,
         "h": 4
       },
@@ -1305,7 +1843,7 @@
       "description": "Share of readings at or above the alert threshold."
     },
     {
-      "id": 19,
+      "id": 26,
       "type": "stat",
       "title": "Readings stored",
       "datasource": {
@@ -1314,7 +1852,7 @@
       },
       "gridPos": {
         "x": 20,
-        "y": 28,
+        "y": 33,
         "w": 4,
         "h": 4
       },
