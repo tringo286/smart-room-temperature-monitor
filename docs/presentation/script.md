@@ -41,7 +41,7 @@ It grades itself against what really happens. In a simulated heat event it warne
 ## Slide 6: Testing and results [2:15–2:45, about 30 seconds]
 
 Without constant access to the hardware, we ran the real firmware on a laptop against fake hardware: 26 tests, plus 14 for the forecast. They caught a real bug: with the server off, the board was frozen 99 % of the time; now it’s 11 %.
-An end-to-end test of the live stack passes all 51 checks, and it caught a second bug, in the forecaster, which we fixed. Data reaches the database in under 5 seconds, a crashed device shows offline instantly, and the firmware uses 39 % of the ESP8266’s RAM.
+An end-to-end test of the live stack passes all 51 checks, and it caught another bug, in the forecaster, which we fixed. Data reaches the database in under 5 seconds, a crashed device shows offline instantly, and the firmware uses 39 % of the ESP8266’s RAM.
 
 *93 words*
 

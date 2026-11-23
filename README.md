@@ -275,7 +275,7 @@ python tools/simulate_sensor.py --device demo --heatwave 1200 --swing 0.3 --swin
 
 The first forecast appears after 5 minutes, and `Alert expected in` then counts down from about 7 minutes. The forecast error panels fill in after about 15 minutes; for a longer demo that still shows the countdown by then, use `--heatwave 2400`.
 
-Then pick `sim1` from the **Device** menu in Grafana.
+Then pick the simulated device (`sim1` or `demo` in the commands above) from the **Device** menu in Grafana.
 
 ### Firmware tests (no board needed)
 
@@ -317,7 +317,7 @@ With the Docker stack running, this test drives the whole pipeline with the simu
 python3 tests/system/run_system_test.py
 ```
 
-It checks that all containers are healthy; that telemetry arrives every 2 s with every field and is stored in InfluxDB; that threshold and mute commands work and invalid ones are ignored; that the device, Telegraf, and the forecaster recover from a broker restart; that the forecast warns before a slow heat event reaches the threshold and then reports "now"; that the forecast beats the naive baseline; that every query on every Grafana panel returns data; that the broker publishes the Last Will when the device crashes; and that the forecaster starts over when the device restarts instead of mixing in the old readings. It uses its own device id (`systest`) and deletes that device's data afterwards.
+It checks that all containers are healthy; that telemetry arrives every 2 s with every field and is stored in InfluxDB; that threshold and mute commands work and invalid ones are ignored; that the device, Telegraf, and the forecaster recover from a broker restart; that the forecast warns before a slow heat event reaches the threshold and then reports "now"; that the forecast beats the naive baseline; that every query on every Grafana panel returns data; that the broker publishes the Last Will when the device crashes; and that the forecaster starts over when the device restarts instead of mixing in the old readings. Each run uses a new device id (`systest-<time>`, so the forecaster's scores from an earlier run are not reused) and deletes that device's data afterwards.
 
 ### Previewing the web dashboard without the board
 

@@ -7,8 +7,10 @@
 
 The device is the sensor simulator (same topics, payload, Last Will and
 commands as the firmware) with a slow heat event, so the test can check that
-the forecast predicts the alert before it happens. It uses its own device id
-("systest") and deletes that device's data afterwards.
+the forecast predicts the alert before it happens. Each run uses a new device
+id ("systest-<time>") and deletes that device's data afterwards. A new id
+matters: the forecaster keeps each device's error history while it runs, so
+reusing an id would score this run with the previous run's predictions.
 
 Checks, in order:
   1. Stack: all five containers running, InfluxDB and Grafana healthy.
@@ -43,7 +45,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "server" / "forecaster"))
 import forecast_model as fm  # noqa: E402
 
-DEVICE = "systest"
+DEVICE = f"systest-{int(time.time())}"
 BASE = f"smartroom/{DEVICE}"
 INFLUX = "http://localhost:8086"
 TOKEN = "smartroom-dev-token"

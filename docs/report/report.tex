@@ -50,31 +50,23 @@
 \maketitle
 
 \begin{abstract}
-Rooms that overheat are uncomfortable, reduce concentration, and can be dangerous for
-vulnerable occupants or for equipment such as small server closets. This paper presents
-the design, implementation, and evaluation of a low-cost Smart Room Temperature Monitor
-built around a NodeMCU ESP8266 and a DHT11 sensor. The device reads temperature and
-humidity every two seconds, computes the heat index, and raises a local alert on a
-16$\times$2 LCD and a buzzer when a configurable threshold is reached, so it keeps
-protecting the room even without a network. Readings are published over MQTT to a
-containerized pipeline (Mosquitto, Telegraf, InfluxDB) and visualized in Grafana,
-while the board also serves its own self-contained web dashboard with a 20-minute
-history and remote controls. Online/offline state is reported with retained messages
-and the MQTT Last Will. A forecasting service fits a weighted trend to the last
-15 minutes of readings, predicts the temperature 10 minutes ahead with a 95\,\%
-interval, and sends the expected time to the alert back to the device, which shows a
-countdown on its LCD; the service scores its own predictions against later readings. Because hardware was not always available, the firmware was
-compiled and tested on a laptop against fake hardware libraries; 26 automated tests
-and JSON contract checks found two real defects, including one that left the board
-unresponsive 99\,\% of the time while the broker was unreachable (reduced to 11\,\%).
-The firmware also builds for the ESP8266 using 39\,\% of its RAM, and an end-to-end test of
-the running stack, covering commands, a broker restart, the forecast, every dashboard query,
-and the Last Will, found a third defect: the forecaster mixed old readings into a restarted
-device's forecast. All 51 of its checks now pass. On the server side we measured a median MQTT broker hop of 1.7\,ms, a median
-publish-to-storage latency of 4.6\,s, and offline detection within 0.01\,s after a
-reset and 24\,s after a silent power loss. In a simulated heat event the forecast
-announced the alert 16--18 minutes in advance with a mean absolute error of
-0.9--1.1\,\textdegree C, compared with 1.6--2.7\,\textdegree C for a naive persistence forecast.
+Rooms that overheat are uncomfortable and can be dangerous for people or equipment. We present a low-cost Smart Room Temperature
+Monitor built around a NodeMCU ESP8266 and a DHT11 sensor. The device reads temperature
+and humidity every two seconds and raises a local alert on a 16$\times$2 LCD and a buzzer
+when a configurable threshold is reached, so it keeps protecting the room without a
+network. Readings are published over MQTT to a containerized pipeline (Mosquitto,
+Telegraf, InfluxDB) and shown in Grafana, and the board also serves its own web dashboard
+with a 20-minute history and remote controls. A forecasting service fits a weighted trend to the
+last 15 minutes of readings, predicts the temperature 10 minutes ahead with a 95\,\%
+interval, shows the expected time to the alert on the LCD, and scores its own
+predictions. The firmware was tested on a laptop against fake hardware libraries:
+26 tests found two defects, including one that left the board unresponsive 99\,\% of the
+time while the broker was unreachable (reduced to 11\,\%). An end-to-end test of the running stack (51 checks) found a third
+defect, in how the forecaster handled a device restart. We measured a median MQTT broker
+hop of 1.7\,ms, a median publish-to-storage latency of 4.6\,s, and offline detection within
+0.01\,s after a reset and 24\,s after a silent power loss. In a simulated heat event the
+forecast announced the alert 16--18 minutes in advance with a mean absolute error of
+0.9--1.1\,\textdegree C, against 1.6--2.7\,\textdegree C for a persistence forecast.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -111,7 +103,8 @@ The main contributions of this project are:
         ahead, warns before the threshold is reached, and continuously measures its own
         accuracy against a baseline.
   \item A host-based test harness that runs the unmodified firmware on a laptop against
-        fake hardware, which found two defects before the hardware was available.
+        fake hardware, and an end-to-end test of the running stack; together they
+        found three defects.
   \item Measurements of the latency and failure-detection behavior of the pipeline.
 \end{itemize}
 
@@ -334,8 +327,8 @@ it extends beyond ``now'' and can later be compared with what actually happened
 (Fig.~\ref{fig:forecast}).
 
 \subsection{Development Tools}
-A Python simulator publishes realistic telemetry (daily drift, noise, and an optional
-heat ramp) with the same topics, payload, and Last Will as the board, and obeys the
+A Python simulator publishes realistic telemetry (a slow up-and-down wave, noise, and
+an optional heat ramp) with the same topics, payload, and Last Will as the board, and obeys the
 command topics. It allowed the pipeline and dashboards to be developed before the
 hardware was assembled and serves as a backup for the live demonstration.
 
@@ -395,11 +388,11 @@ is in an error state.
 \label{sec:systest}
 A second script tests the running Docker stack as a whole, with the simulator acting as the
 device (same topics, payload, Last Will, and commands as the firmware) and a slow heat
-event that crosses the 30\,\textdegree C threshold after about ten minutes. It uses its own
+event that crosses the 30\,\textdegree C threshold after about ten minutes. Each run uses a new
 device identifier and deletes that device's data afterwards. The final 17-minute run passed
 all 51 checks; Table~\ref{tab:systest} summarizes them. After a restart of the broker,
 telemetry flowed again within 1.8\,s, and Telegraf and the forecaster reconnected on their
-own. Every one of the 23 Flux queries behind the 21 Grafana panels returned data for the test
+own. Every one of the 23 Flux queries behind the 22 Grafana panels returned data for the test
 device, which confirms that the dashboard, the Telegraf configuration, and the message
 formats agree.
 
@@ -577,7 +570,8 @@ remote control. Running the alarm logic at the edge keeps the room protected whe
 network fails, and the retained status with Last Will makes device failures visible.
 Testing the firmware on a laptop against fake hardware proved worthwhile: it found
 a defect that would have frozen the board during the demonstration whenever the server
-was unreachable. The forecasting service turns the system from reactive to proactive: in
+was unreachable. An end-to-end test of the running stack found a third defect, in how
+the forecaster handled a device restart. The forecasting service turns the system from reactive to proactive: in
 simulation it warned about an upcoming alert more than a quarter of an hour in advance,
 and it reports its own accuracy so its warnings can be trusted or questioned.
 

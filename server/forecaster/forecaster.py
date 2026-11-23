@@ -14,6 +14,7 @@ Runs in Docker as part of server/docker-compose.yml, or by hand:
 
 import argparse
 import json
+import math
 import time
 
 import paho.mqtt.client as mqtt
@@ -47,6 +48,10 @@ def main():
             threshold = float(data["threshold"])
             uptime = data.get("uptime_s")
             uptime = float(uptime) if uptime is not None else None
+            # Python's JSON parser accepts NaN and Infinity; one such value would
+            # spoil this device's forecasts for 15 minutes.
+            if not all(math.isfinite(v) for v in (temperature, threshold, uptime or 0.0)):
+                raise ValueError("not a finite number")
         except (ValueError, KeyError, TypeError):
             print(f"Ignored bad telemetry from {device}: {msg.payload[:80]!r}", flush=True)
             return
