@@ -37,7 +37,7 @@ Everything to the right of the NodeMCU runs in Docker on a laptop (or Raspberry 
 
 ## Report and Presentation
 
-- **Report** (IEEE conference format): [docs/report/report.pdf](docs/report/report.pdf), source [report.tex](docs/report/report.tex). Build it with `cd docs/report && latexmk -pdf report.tex`. The red `[...]` placeholders (university, emails, hardware validation, acknowledgment) still need to be filled in by the team.
+- **Report** (IEEE conference format): [docs/report/report.pdf](docs/report/report.pdf), source [report.tex](docs/report/report.tex). Build it with `cd docs/report && latexmk -pdf report.tex`. The red `[...]` placeholders (emails, the third member, the hardware validation, and how the work was divided) still need to be filled in by the team.
 - **Slides** (3 minutes, 7 slides, script in the speaker notes): [docs/presentation/smart-room-presentation.pptx](docs/presentation/smart-room-presentation.pptx)
 - **Presentation script** with timings for each slide: [docs/presentation/script.md](docs/presentation/script.md)
 

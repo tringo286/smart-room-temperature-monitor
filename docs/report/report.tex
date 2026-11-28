@@ -5,8 +5,8 @@
 %  ../grafana-dashboard-simulated.png and ../grafana-forecast.png to Overleaf).
 %
 % Text in red (\fillin{...}) must be completed by the team before submission:
-% names, hardware measurements that need the physical board, and the AI-use
-% statement. Search for "fillin" to find them all.
+% emails, the third member (or delete that block), hardware measurements that need
+% the physical board, and how the work was divided. Search for "fillin" to find them all.
 
 \documentclass[conference]{IEEEtran}
 \IEEEoverridecommandlockouts
@@ -33,12 +33,14 @@
 \author{
 \IEEEauthorblockN{Nguyen Phuong Duy Lam}
 \IEEEauthorblockA{\textit{Department of Computer Engineering} \\
-\fillin{University} \\
+San Jos\'e State University \\
+San Jos\'e, CA, USA \\
 \fillin{email}}
 \and
 \IEEEauthorblockN{Tri Ngo}
 \IEEEauthorblockA{\textit{Department of Computer Engineering} \\
-\fillin{University} \\
+San Jos\'e State University \\
+San Jos\'e, CA, USA \\
 \fillin{email}}
 \and
 \IEEEauthorblockN{\fillin{Third member, or delete}}
@@ -176,7 +178,7 @@ access, but nothing safety-relevant depends on it.
 The device uses a NodeMCU board with an ESP8266 Wi-Fi microcontroller~\cite{esp8266},
 a DHT11 temperature and humidity sensor, a 16$\times$2 character LCD with an I\textsuperscript{2}C
 backpack, and a buzzer. Table~\ref{tab:wiring} lists the connections. The DHT11 is
-specified for 0--50\,\textdegree C with $\pm$2\,\textdegree C accuracy and 20--90\,\% relative
+specified for 0--50\,\textdegree C with $\pm$2\,\textdegree C accuracy and 20--80\,\% relative
 humidity with $\pm$5\,\% accuracy, and should not be read more than once per
 second~\cite{dht11}; a two-second sampling period respects this limit while still
 reacting quickly to changes.
@@ -584,9 +586,10 @@ the broker is unreachable, and securing MQTT with authentication and TLS.
 
 % ---------------------------------------------------------------------------
 \section*{Acknowledgment}
-\fillin{State how the team divided the work. If required by the course, add a statement on
-the use of AI tools, e.g.: ``AI tools were used, with the instructor's permission, to assist
-with code and with drafting this report; all content was reviewed and edited by the authors.''}
+\fillin{State how the team divided the work.} AI tools were used, as permitted by the course
+instructor: Claude Code (Anthropic), an AI coding agent, helped write and test the software,
+run the measurements and tests reported here, and draft this report and the presentation.
+The authors directed this work and are responsible for its content.
 
 \begin{thebibliography}{00}
 \bibitem{ashrae55} \textit{Thermal Environmental Conditions for Human Occupancy},
@@ -618,8 +621,8 @@ with code and with drafting this report; all content was reviewed and edited by 
 \bibitem{hyndman} R. J. Hyndman and G. Athanasopoulos, \textit{Forecasting: Principles
   and Practice}, 3rd ed. Melbourne, Australia: OTexts, 2021. [Online]. Available:
   \url{https://otexts.com/fpp3/}
-\bibitem{dht11} Aosong Electronics, ``DHT11 digital temperature and humidity sensor,''
-  datasheet. \fillin{Add the URL of the datasheet you used.}
+\bibitem{dht11} Adafruit Industries, ``DHT11 basic temperature-humidity sensor + extras,''
+  product page with technical details. [Online]. Available: \url{https://www.adafruit.com/product/386}
 \end{thebibliography}
 
 \end{document}
