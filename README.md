@@ -19,7 +19,7 @@ flowchart LR
     FC -- "MQTT forecast" --> MQ
 ```
 
-Everything to the right of the NodeMCU runs in Docker on a laptop (or Raspberry Pi) on the same Wi-Fi network (see `server/`).
+Everything to the right of the NodeMCU runs in Docker on a laptop (or Raspberry Pi) on the same Wi-Fi network (see `server/`). A detailed version with the measured latencies is in [docs/data-flow.png](docs/data-flow.png) ([SVG](docs/data-flow.svg)).
 
 ## Dashboards
 
@@ -30,6 +30,28 @@ Everything to the right of the NodeMCU runs in Docker on a laptop (or Raspberry 
 **Grafana dashboard** (history, alerts, and summary statistics from InfluxDB; screenshot uses simulated data):
 
 ![Grafana dashboard with simulated data](docs/grafana-dashboard-simulated.png)
+
+**Forecast panels** during a simulated heat event: the dashed line and band are the 10-minute-ahead forecast and its 95 % range, drawn ahead of the measured temperature (see [Temperature Forecast](#temperature-forecast)):
+
+![Grafana forecast panels during a simulated heat event](docs/grafana-forecast.png)
+
+## Report and Presentation
+
+- **Report** (IEEE conference format): [docs/report/report.pdf](docs/report/report.pdf), source [report.tex](docs/report/report.tex). Build it with `cd docs/report && latexmk -pdf report.tex`. The red `[...]` placeholders (university, emails, hardware validation, acknowledgment) still need to be filled in by the team.
+- **Slides** (3 minutes, 7 slides, script in the speaker notes): [docs/presentation/smart-room-presentation.pptx](docs/presentation/smart-room-presentation.pptx)
+- **Presentation script** with timings for each slide: [docs/presentation/script.md](docs/presentation/script.md)
+
+Results so far, all measured on the server stack and with simulated sensor data (the hardware measurements are still to be done):
+
+| What | Result |
+|---|---|
+| Firmware tests on a computer (fake hardware) | 26 tests, plus 14 forecast-model tests; found 2 defects |
+| End-to-end test of the running stack | 51 of 51 checks pass; found a third defect (forecasts after a device restart) |
+| Board frozen while the broker is unreachable | 99 % of the time before the fix, 11 % after |
+| MQTT broker hop, publish to stored in InfluxDB | 1.7 ms and 4.6 s (medians) |
+| Device shown offline | 0.01 s after a reset, 24 s after a silent power loss |
+| ESP8266 build | 39 % of RAM, 29 % of flash |
+| Forecast, 10 minutes ahead, simulated heat event | alert announced 16–18 min early; error 0.9 °C vs 2.7 °C for "same as now" |
 
 ## Components
 
@@ -342,7 +364,10 @@ Reload the browser after editing `dashboard_page.h`.
 - `tools/simulate_sensor.py` - Simulated device for testing without hardware.
 - `tools/preview_dashboard.py` - Local preview of the web dashboard with mock data.
 - `tools/build_grafana_dashboard.py` - Generates the Grafana dashboard JSON.
+- `tools/measure_pipeline.py` - Measures the pipeline latencies and offline detection used in the report.
 - `tests/firmware/` - Firmware tests that run on a computer with fake hardware libraries.
 - `tests/forecaster/` - Unit tests for the forecast model.
 - `tests/system/` - End-to-end test of the running server stack.
-- `docs/` - Dashboard screenshots.
+- `docs/report/` - Project report (LaTeX source and PDF).
+- `docs/presentation/` - Slides and presentation script.
+- `docs/` - Data-flow diagram and dashboard screenshots.
