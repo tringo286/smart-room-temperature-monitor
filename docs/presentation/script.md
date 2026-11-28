@@ -1,7 +1,7 @@
 # 3-minute presentation script
 
 Smart Room Temperature Monitor, CMPE 286: seven slides, about 180 seconds.
-Total: 419 words, which is about 3 minutes at a steady 140 words per minute. The same text is in each slide's speaker notes in the deck.
+Total: 419 words, which is about 3 minutes at a steady 140 words per minute. The same text is in each slide's speaker notes in the deck, [smart-room-presentation.pptx](smart-room-presentation.pptx).
 
 Tips: practise with a timer, and pause briefly on the forecast and testing numbers. If you run long, shorten slide 4 first.
 
